@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include "language_interpreter.h"
 
-void language_error(language_interpreter_t*li, const char*error, ...)
+void language_error(language_t*li, const char*error, ...)
 {
     char buf[1024];
     int l;
@@ -37,7 +37,7 @@ static void sigalarm(int signal)
     longjmp(timeout_jmp, 1);
 }
 
-static value_t* with_timeout(language_interpreter_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout)
+static value_t* with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout)
 {
     value_t*ret = NULL;
     if(timeout) {
@@ -85,17 +85,17 @@ static value_t* with_timeout(language_interpreter_t*l, const char*script, const 
     return ret;
 }
 
-value_t* call_function_with_timeout(language_interpreter_t*l, const char*function, value_t*args, int max_seconds, bool*timeout)
+value_t* call_function_with_timeout(language_t*l, const char*function, value_t*args, int max_seconds, bool*timeout)
 {
     return with_timeout(l, NULL, function, args, max_seconds, timeout);
 }
 
-value_t* compile_and_run_function_with_timeout(language_interpreter_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout)
+value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout)
 {
     return with_timeout(l, script, function, args, max_seconds, timeout);
 }
 
-language_interpreter_t* interpreter_by_extension(const char*filename, function_def_t* methods)
+language_t* interpreter_by_extension(const char*filename, function_def_t* methods)
 {
     const char*dot = strrchr(filename, '.');
     if(dot)

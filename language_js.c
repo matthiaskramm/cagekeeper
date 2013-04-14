@@ -15,7 +15,7 @@
 #include "function.h"
 
 typedef struct _js_internal {
-    language_interpreter_t*li;
+    language_t*li;
     JSRuntime *rt;
     JSContext *cx;
     JSObject *global;
@@ -47,7 +47,7 @@ static void error_callback(JSContext *cx, const char *message, JSErrorReport *re
     }
 }
 
-value_t* js_argv_to_args(language_interpreter_t*li, JSContext *cx, uintN argc, jsval *argv, function_def_t*f)
+value_t* js_argv_to_args(language_t*li, JSContext *cx, uintN argc, jsval *argv, function_def_t*f)
 {
     int i;
     jsval*sp = argv;
@@ -231,7 +231,7 @@ bool define_constant_js(struct _language_interpreter*li, const char*name, value_
     return true;
 }
 
-static bool compile_script_js(language_interpreter_t*li, const char*script)
+static bool compile_script_js(language_t*li, const char*script)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
@@ -240,7 +240,7 @@ static bool compile_script_js(language_interpreter_t*li, const char*script)
     return ok;
 }
 
-static bool is_function_js(language_interpreter_t*li, const char*name)
+static bool is_function_js(language_t*li, const char*name)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
@@ -279,7 +279,7 @@ static value_t* jsval_to_value(js_internal_t*js, jsval v)
     }
 }
 
-static value_t* call_function_js(language_interpreter_t*li, const char*name, value_t* args)
+static value_t* call_function_js(language_t*li, const char*name, value_t* args)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
@@ -306,7 +306,7 @@ static value_t* call_function_js(language_interpreter_t*li, const char*name, val
     return val;
 }
 
-void destroy_js(language_interpreter_t* li)
+void destroy_js(language_t* li)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     JS_DestroyContext(js->cx);
@@ -317,9 +317,9 @@ void destroy_js(language_interpreter_t* li)
     free(li);
 }
 
-language_interpreter_t* javascript_interpreter_new(function_def_t*functions)
+language_t* javascript_interpreter_new(function_def_t*functions)
 {
-    language_interpreter_t * li = calloc(1, sizeof(language_interpreter_t));
+    language_t * li = calloc(1, sizeof(language_t));
 #ifdef DEBUG
     li->magic = LANG_MAGIC;
 #endif
