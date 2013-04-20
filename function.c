@@ -110,7 +110,7 @@ ffi_type * function_ffi_rtype(function_def_t*method)
 {
     type_t type;
     _parse_type(method->ret, &type);
-    printf("ret type: \"%s\" %s\n", method->ret, _type_to_string(type));
+    dbg("[ffi] ret type: \"%s\" %s\n", method->ret, _type_to_string(type));
     return _type_to_ffi_type(type);
 }
 
@@ -217,7 +217,7 @@ static const char* _ffi_arg_type(const ffi_type*t)
 }
 static void dump_ffi_call(const char*name, const ffi_cif*cif)
 {
-    printf("ffi: %s(", name);
+    printf("%s(", name);
     int i;
     for(i=0;i<cif->nargs;i++) {
         if(i>0)
@@ -243,8 +243,8 @@ value_t* function_call(void*context, function_def_t*f, value_t*args)
     }
 
 #ifdef DEBUG
-    function_signature_dump(sig);
-    printf("args:");value_dump(args);printf("\n");
+    printf("[ffi] ");function_signature_dump(sig);
+    printf("[ffi] args: ");value_dump(args);printf("\n");
 #endif
 
     function_signature_verify(sig, args);
@@ -284,7 +284,7 @@ value_t* function_call(void*context, function_def_t*f, value_t*args)
     } ret_raw;
 
 #ifdef DEBUG
-    dump_ffi_call(f->name, &cif);
+    printf("[ffi] call: "); dump_ffi_call(f->name, &cif);
 #endif
     ffi_call(&cif, f->call, &ret_raw, ffi_args);
 
@@ -416,6 +416,8 @@ void value_destroy(value_t*v)
                value_destroy(v->data[i]);
                v->data[i] = NULL;
             }
+            free(v->data);
+            free(v->internal);
         }
         break;
     }
