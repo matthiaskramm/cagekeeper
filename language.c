@@ -4,7 +4,7 @@
 #include <string.h>
 #include <setjmp.h>
 #include <stdarg.h>
-#include "language_interpreter.h"
+#include "language.h"
 
 void language_error(language_t*li, const char*error, ...)
 {
@@ -37,7 +37,7 @@ static void sigalarm(int signal)
     longjmp(timeout_jmp, 1);
 }
 
-static value_t* with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout)
+static value_t* with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, char*timeout)
 {
     value_t*ret = NULL;
     if(timeout) {
@@ -85,12 +85,12 @@ static value_t* with_timeout(language_t*l, const char*script, const char*functio
     return ret;
 }
 
-value_t* call_function_with_timeout(language_t*l, const char*function, value_t*args, int max_seconds, bool*timeout)
+value_t* call_function_with_timeout(language_t*l, const char*function, value_t*args, int max_seconds, char*timeout)
 {
     return with_timeout(l, NULL, function, args, max_seconds, timeout);
 }
 
-value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout)
+value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, char*timeout)
 {
     return with_timeout(l, script, function, args, max_seconds, timeout);
 }
@@ -98,17 +98,18 @@ value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, 
 language_t* interpreter_by_extension(const char*filename, function_def_t* methods)
 {
     const char*dot = strrchr(filename, '.');
-    if(dot)
-        filename = dot+1;
+    const char*extension = dot ? dot+1 : filename;
 
-    if(!strcmp(filename, "lua"))
+    if(!strcmp(extension, "lua"))
         //return lua_interpreter_new(methods);
         return NULL;
+    else if(!strcmp(extension, "py"))
+        return python_interpreter_new(methods);
     else
         return javascript_interpreter_new(methods);
 }
 
-bool define_int_constant(struct _language_interpreter*li, const char*name, int i)
+bool define_int_constant(language_t*li, const char*name, int i)
 {
     value_t* v = value_new_int32(i);
     bool ret = li->define_constant(li, name, v);
@@ -116,7 +117,7 @@ bool define_int_constant(struct _language_interpreter*li, const char*name, int i
     return ret;
 }
 
-bool define_string_constant(struct _language_interpreter*li, const char*name, const char*s)
+bool define_string_constant(language_t*li, const char*name, const char*s)
 {
     value_t* v = value_new_string(s);
     bool ret = li->define_constant(li, name, v);
@@ -124,7 +125,7 @@ bool define_string_constant(struct _language_interpreter*li, const char*name, co
     return ret;
 }
 
-int call_int_function(struct _language_interpreter*li, const char*name)
+int call_int_function(language_t*li, const char*name)
 {
     value_t*args = array_new();
     value_t*ret = li->call_function(li, name, args);

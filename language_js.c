@@ -9,7 +9,7 @@
 #include <jsapi.h>
 #include <ffi.h>
 
-#include "language_interpreter.h"
+#include "language.h"
 #include "util.h"
 #include "dict.h"
 #include "function.h"
@@ -215,7 +215,7 @@ bool init_js(js_internal_t*js, function_def_t*functions)
     return true;
 }
 
-bool define_constant_js(struct _language_interpreter*li, const char*name, value_t* value)
+bool define_constant_js(language_t*li, const char*name, value_t* value)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval v = value_to_jsval(js->cx, value);
