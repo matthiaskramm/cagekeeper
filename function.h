@@ -31,7 +31,7 @@ typedef struct _value {
 value_t* value_new_void();
 value_t* value_new_string(const char* s);
 value_t* value_new_boolean(bool b);
-value_t* value_new_float32(int32_t f32);
+value_t* value_new_float32(float f32);
 value_t* value_new_int32(int32_t i32);
 void value_dump(value_t*v);
 void value_destroy(value_t*v);

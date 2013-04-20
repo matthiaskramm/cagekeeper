@@ -95,34 +95,41 @@ value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, 
     return with_timeout(l, script, function, args, max_seconds, timeout);
 }
 
-language_t* interpreter_by_extension(const char*filename, function_def_t* methods)
+language_t* interpreter_by_extension(const char*filename)
 {
     const char*dot = strrchr(filename, '.');
     const char*extension = dot ? dot+1 : filename;
 
     if(!strcmp(extension, "lua"))
-        //return lua_interpreter_new(methods);
+        //return lua_interpreter_new();
         return NULL;
     else if(!strcmp(extension, "py"))
-        return python_interpreter_new(methods);
+        return python_interpreter_new();
     else
-        return javascript_interpreter_new(methods);
+        return javascript_interpreter_new();
 }
 
-bool define_int_constant(language_t*li, const char*name, int i)
+void define_int_constant(language_t*li, const char*name, int i)
 {
     value_t* v = value_new_int32(i);
-    bool ret = li->define_constant(li, name, v);
+    li->define_constant(li, name, v);
     value_destroy(v);
-    return ret;
 }
 
-bool define_string_constant(language_t*li, const char*name, const char*s)
+void define_string_constant(language_t*li, const char*name, const char*s)
 {
     value_t* v = value_new_string(s);
-    bool ret = li->define_constant(li, name, v);
+    li->define_constant(li, name, v);
     value_destroy(v);
-    return ret;
+}
+
+void define_functions(language_t* li, function_def_t*functions)
+{
+    int num = count_function_defs(functions);
+    int i;
+    for(i=0;i<num;i++) {
+        li->define_function(li, &functions[i]);
+    }
 }
 
 int call_int_function(language_t*li, const char*name)

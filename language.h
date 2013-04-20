@@ -17,7 +17,8 @@ typedef struct _language {
     const char*name;
     int verbosity;
 
-    bool (*define_constant)(struct _language*li, const char*name, value_t*value);
+    void (*define_constant)(struct _language*li, const char*name, value_t*value);
+    void (*define_function)(struct _language*li, function_def_t*f);
 
     bool (*compile_script) (struct _language*li, const char*script);
     bool (*is_function) (struct _language*li, const char*name);
@@ -30,15 +31,18 @@ typedef struct _language {
     const char*error;
 } language_t;
 
-int call_int_function(language_t* li, const char*name);
-bool define_int_constant(language_t* li, const char*name, int value);
-bool define_string_constant(language_t* li, const char*name, const char* value);
+void define_functions(language_t* li, function_def_t*functions);
 
-language_t* javascript_interpreter_new(function_def_t*methods);
-language_t* lua_interpreter_new(function_def_t*methods);
-language_t* python_interpreter_new(function_def_t*methods);
-language_t* ruby_interpreter_new(function_def_t*methods);
-language_t* interpreter_by_extension(const char*filename, function_def_t* functions);
+int call_int_function(language_t* li, const char*name);
+void define_int_constant(language_t* li, const char*name, int value);
+void define_string_constant(language_t* li, const char*name, const char* value);
+
+language_t* javascript_interpreter_new();
+language_t* lua_interpreter_new();
+language_t* python_interpreter_new();
+language_t* ruby_interpreter_new();
+
+language_t* interpreter_by_extension(const char*filename);
 
 void language_error(language_t*l, const char*error, ...);
 #define language_log language_error

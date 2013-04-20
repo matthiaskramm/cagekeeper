@@ -432,7 +432,7 @@ value_t* value_new_int32(int32_t i32)
     return v;
 }
 
-value_t* value_new_float32(int32_t f32)
+value_t* value_new_float32(float f32)
 {
     value_t*v = calloc(sizeof(value_t),1);
     v->type = TYPE_FLOAT32;
@@ -482,3 +482,4 @@ int value_to_int(value_t*v)
             return -1;
     }
 }
+

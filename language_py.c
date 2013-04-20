@@ -177,7 +177,7 @@ static value_t* call_function_py(language_t*li, const char*name, value_t*args)
     }
 }
 
-static bool define_constant_py(language_t*li, const char*name, value_t*value)
+static void define_constant_py(language_t*li, const char*name, value_t*value)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
     dbg("[python] defining constant %s", name);
@@ -201,29 +201,28 @@ static PyTypeObject FunctionProxyClass =
     tp_itemsize: 0,
 };
 
-static void define_functions(py_internal_t*py_internal, function_def_t*functions)
+static void define_function_py(language_t*li, function_def_t*f)
 {
+    py_internal_t*py_internal = (py_internal_t*)li->internal;
+
     PyObject*dict = py_internal->globals;
 
-    function_def_t*f;
-    for(f=functions; f->name; f++) {
-        PyMethodDef*m = calloc(sizeof(PyMethodDef), 1);
-        m->ml_name = f->name;
-        m->ml_meth = python_method_proxy;
-        m->ml_flags = METH_VARARGS;
+    PyMethodDef*m = calloc(sizeof(PyMethodDef), 1);
+    m->ml_name = f->name;
+    m->ml_meth = python_method_proxy;
+    m->ml_flags = METH_VARARGS;
 
-        FunctionProxyObject*self = PyObject_New(FunctionProxyObject, &FunctionProxyClass);
-        self->function = f;
-        self->py_internal = py_internal;
+    FunctionProxyObject*self = PyObject_New(FunctionProxyObject, &FunctionProxyClass);
+    self->function = f;
+    self->py_internal = py_internal;
 
-        PyObject*cfunction = PyCFunction_New(m, (PyObject*)self);
-        PyDict_SetItemString(dict, f->name, cfunction);
-    }
+    PyObject*cfunction = PyCFunction_New(m, (PyObject*)self);
+    PyDict_SetItemString(dict, f->name, cfunction);
 }
 
 static int py_reference_count = 0;
 
-static bool init_py(py_internal_t*py, function_def_t*functions)
+static bool init_py(py_internal_t*py)
 {
     dbg("[python] initializing interpreter");
 
@@ -245,15 +244,13 @@ static bool init_py(py_internal_t*py, function_def_t*functions)
 
     PyDict_Update(py->globals, globals);
 
-    globals->ob_type->tp_print(globals, stdout, 0);
+    //globals->ob_type->tp_print(globals, stdout, 0);
     
     PyDict_SetItem(py->globals, PyString_FromString("math"), PyImport_ImportModule("math"));
 
     /* compile an empty script so Python has a chance to load all the things
        it needs for compiling (encodingsmodule etc.) */
     PyRun_String("None", Py_file_input, py->globals, NULL);
-
-    define_functions(py, functions);
 }
 
 static void destroy_py(language_t* li)
@@ -267,7 +264,7 @@ static void destroy_py(language_t* li)
     }
 }
 
-language_t* python_interpreter_new(function_def_t*functions)
+language_t* python_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
 #ifdef DEBUG
@@ -278,11 +275,12 @@ language_t* python_interpreter_new(function_def_t*functions)
     li->is_function = is_function_py;
     li->call_function = call_function_py;
     li->define_constant = define_constant_py;
+    li->define_function = define_function_py;
     li->destroy = destroy_py;
     li->internal = calloc(1, sizeof(py_internal_t));
 
     py_internal_t*py = (py_internal_t*)li->internal;
     py->li = li;
-    init_py(py, functions);
+    init_py(py);
     return li;
 }

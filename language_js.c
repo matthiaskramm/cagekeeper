@@ -169,24 +169,19 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
     return JS_TRUE;
 }
 
-static define_functions(js_internal_t*js, function_def_t*functions)
+static void define_function_js(language_t*li, function_def_t*f)
 {
-    int num = count_function_defs(functions);
-    js->jsfunction_to_functiondef = dict_new(&ptr_type);
-
-    int i;
-    for(i=0;i<num;i++) {
-        JSFunction*func = JS_DefineFunction(js->cx, js->global, 
-                              functions[i].name, 
-                              js_function_proxy,
-                              function_count_args(&functions[i]),
-                              0
-                           );
-        dict_put(js->jsfunction_to_functiondef, func, &functions[i]);
-    }
+    js_internal_t*js = (js_internal_t*)li->internal;
+    JSFunction*func = JS_DefineFunction(js->cx, js->global, 
+                          f->name, 
+                          js_function_proxy,
+                          function_count_args(f),
+                          0
+                       );
+    dict_put(js->jsfunction_to_functiondef, func, f);
 }
 
-bool init_js(js_internal_t*js, function_def_t*functions)
+bool init_js(js_internal_t*js)
 {
     js->rt = JS_NewRuntime(128L * 1024L * 1024L);
     if (js->rt == NULL)
@@ -209,13 +204,12 @@ bool init_js(js_internal_t*js, function_def_t*functions)
     if (!JS_InitStandardClasses(js->cx, js->global))
         return false;
 
-    define_functions(js, functions);
-
     js->buffer = malloc(65536);
+    js->jsfunction_to_functiondef = dict_new(&ptr_type);
     return true;
 }
 
-bool define_constant_js(language_t*li, const char*name, value_t* value)
+void define_constant_js(language_t*li, const char*name, value_t* value)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval v = value_to_jsval(js->cx, value);
@@ -226,9 +220,7 @@ bool define_constant_js(language_t*li, const char*name, value_t* value)
 #endif
     if(!JS_SetProperty(js->cx, js->global, name, &v)) {
         language_error(li, "Couldn't define constant %s", name);
-        return false;
     }
-    return true;
 }
 
 static bool compile_script_js(language_t*li, const char*script)
@@ -317,7 +309,7 @@ void destroy_js(language_t* li)
     free(li);
 }
 
-language_t* javascript_interpreter_new(function_def_t*functions)
+language_t* javascript_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
 #ifdef DEBUG
@@ -327,12 +319,13 @@ language_t* javascript_interpreter_new(function_def_t*functions)
     li->compile_script = compile_script_js;
     li->is_function = is_function_js;
     li->call_function = call_function_js;
+    li->define_function = define_function_js;
     li->define_constant = define_constant_js;
     li->destroy = destroy_js;
     li->internal = calloc(1, sizeof(js_internal_t));
     js_internal_t*js = (js_internal_t*)li->internal;
     js->li = li;
-    init_js(js, functions);
+    init_js(js);
     return li;
 }
 

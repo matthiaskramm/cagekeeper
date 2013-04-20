@@ -1,9 +1,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include <stdarg.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <errno.h>
 #include "util.h"
 
 char* dbg(const char*format, ...)
@@ -125,3 +128,42 @@ char*read_file(const char*filename)
     return script;
 }
 
+bool read_with_timeout(int fd, void* data, int len, struct timeval* timeout)
+{
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(fd, &readfds);
+
+    int pos = 0;
+    while(pos<len) {
+        int ret;
+        while(1) {
+            ret = select(fd+1, &readfds, NULL, NULL, timeout);
+            if(ret<0) {
+                if(errno == EINTR || errno == EAGAIN)
+                    continue;
+                return false;
+            }
+            if(ret>=0)
+                break;
+        }
+        if(!FD_ISSET(fd, &readfds)) {
+            // timeout
+            return false;
+        }
+
+        ret = read(fd, data+pos, len-pos);
+        if(ret<0) {
+            if(errno == EINTR || errno == EAGAIN)
+                continue;
+            // read error
+            return false;
+        }
+        if(ret==0) {
+            // EOF
+            return false;
+        }
+        pos += ret;
+    }
+    return true;
+}
