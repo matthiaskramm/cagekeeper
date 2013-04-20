@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <memory.h>
+#include <errno.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include "ptmalloc/malloc-2.8.3.h"
 
@@ -25,7 +27,7 @@ extern void *__libc_realloc(void *ptr, size_t size);
 extern void *__libc_memalign(size_t size, size_t align);
 extern void *__libc_valloc(size_t size);
 
-static bool lockdown = true;
+static bool lockdown = false;
 static mspace msp;
 
 void init_mem_wrapper(size_t size)
@@ -44,7 +46,7 @@ void *__wrap_malloc(size_t size)
         void*ptr = __libc_malloc(size);
         if(!ptr) {
             write(2, "Out of memory\n", 14);
-            exit(5);
+            _exit(5);
         }
         return ptr;
     }
@@ -69,7 +71,7 @@ void *__wrap_calloc(size_t nmemb, size_t size)
         void*ptr = __libc_calloc(nmemb, size);
         if(!ptr) {
             write(2, "Out of memory\n", 14);
-            exit(5);
+            _exit(5);
         }
         return ptr;
     }
@@ -84,7 +86,7 @@ void *__wrap_realloc(void *_ptr, size_t size)
         void*ptr = __libc_realloc(_ptr, size);
         if(!ptr) {
             write(2, "Out of memory\n", 14);
-            exit(5);
+            _exit(5);
         }
         return ptr;
     }
@@ -99,9 +101,25 @@ void *__wrap_memalign(size_t size, size_t align)
         void*ptr = __libc_memalign(size, align);
         if(!ptr) {
             write(2, "Out of memory\n", 14);
-            exit(5);
+            _exit(5);
         }
         return ptr;
+    }
+}
+
+void*sandbox_sbrk(intptr_t len)
+{
+    if(lockdown) {
+        write(2, "Out of memory\n", 14);
+        errno = ENOMEM;
+        _exit(5);
+        return NULL;
+    } else {
+        //return sbrk(size);
+        write(2, "Out of memory\n", 14);
+        errno = ENOMEM;
+        _exit(5);
+        return NULL;
     }
 }
 

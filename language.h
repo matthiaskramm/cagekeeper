@@ -43,7 +43,7 @@ language_t* interpreter_by_extension(const char*filename, function_def_t* functi
 void language_error(language_t*l, const char*error, ...);
 #define language_log language_error
 
-value_t* call_function_with_timeout(language_t*l, const char*function, value_t*args, int max_seconds, char*timeout);
-value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, char*timeout);
+value_t* call_function_with_timeout(language_t*l, const char*function, value_t*args, int max_seconds, bool*timeout);
+value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, const char*function, value_t*args, int max_seconds, bool*timeout);
 
 #endif //__language_interpreter_h__
