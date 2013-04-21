@@ -13,6 +13,10 @@ value_t void_value = {
     type: TYPE_VOID,
 };
 
+typedef struct {
+    int size;
+} array_internal_t;
+
 int count_function_defs(c_function_def_t*methods) 
 {
     int i = 0;
@@ -139,7 +143,7 @@ ffi_type * function_ffi_rtype(c_function_def_t*method)
 {
     type_t type;
     _parse_type(method->ret, &type);
-    dbg("[ffi] ret type: \"%s\" %s\n", method->ret, _type_to_string(type));
+    dbg("[ffi] ret type: \"%s\" %s", method->ret, _type_to_string(type));
     return _type_to_ffi_type(type);
 }
 
@@ -168,7 +172,6 @@ function_signature_t* function_get_signature(c_function_def_t*f)
     int i;
 
     a = f->params;
-    sig->name = f->name;
     sig->num_params = 0;
     while(*a) {
         type_t type;
@@ -191,7 +194,7 @@ function_signature_t* function_get_signature(c_function_def_t*f)
 
 void function_signature_dump(function_signature_t*sig)
 {
-    printf("sig: %s(", sig->name);
+    printf("sig: (");
     int i;
     for(i=0;i<sig->num_params;i++) {
         if(i>0)
@@ -246,9 +249,9 @@ static const char* _ffi_arg_type(const ffi_type*t)
     else
         return "<unknown>";
 }
-static void dump_ffi_call(const char*name, const ffi_cif*cif)
+static void dump_ffi_call(const ffi_cif*cif)
 {
-    printf("%s(", name);
+    printf("(");
     int i;
     for(i=0;i<cif->nargs;i++) {
         if(i>0)
@@ -286,7 +289,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
     }
     void**ffi_args = malloc(sizeof(void*) * (args->length + 1));
     int i;
-    ffi_args[0] = f->context;
+    ffi_args[0] = &f->context;
     for(i=0;i<args->length;i++) {
         switch(args->data[i]->type) {
             case TYPE_FLOAT32:
@@ -320,7 +323,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
     } ret_raw;
 
 #ifdef DEBUG
-    printf("[ffi] call: "); dump_ffi_call(f->name, &cif);
+    printf("[ffi] call: "); dump_ffi_call(&cif);
 #endif
     ffi_call(&cif, f->call, &ret_raw, ffi_args);
 
@@ -354,18 +357,6 @@ value_t* cfunction_call(value_t*self, value_t*_args)
     }
     function_signature_destroy(sig);
     return ret;
-}
-
-typedef struct {
-    int size;
-} array_internal_t;
-
-value_t* array_new()
-{
-    value_t*v = calloc(sizeof(value_t),1);
-    v->type = TYPE_ARRAY;
-    v->internal = calloc(sizeof(array_internal_t),1);
-    return v;
 }
 
 void value_dump(value_t*v)
@@ -445,6 +436,8 @@ void value_destroy(value_t*v)
 {
     if(v->destroy) {
         v->destroy(v);
+    } else {
+        free(v);
     }
 }
 
@@ -461,6 +454,7 @@ static void value_destroy_string(value_t*v)
 
 static void value_destroy_array(value_t*v)
 {
+    array_internal_t*internal = v->internal;
     int i;
     for(i=0;i<v->length;i++) {
        value_destroy(v->data[i]);
@@ -522,6 +516,20 @@ value_t* value_new_void()
     v->destroy = value_destroy_simple;
     v->type = TYPE_VOID;
     return v;
+}
+
+value_t* value_new_array()
+{
+    value_t*v = calloc(sizeof(value_t),1);
+    v->type = TYPE_ARRAY;
+    v->internal = calloc(sizeof(array_internal_t),1);
+    v->destroy = value_destroy_array;
+    return v;
+}
+
+value_t* array_new()
+{
+    return value_new_array();
 }
 
 value_t* value_new_cfunction(void (*call)(), void*context, char*params, char*ret)

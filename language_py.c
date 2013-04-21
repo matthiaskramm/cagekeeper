@@ -53,8 +53,8 @@ value_t* pyobject_to_value(language_t*li, PyObject*o)
         int l = PyTuple_GET_SIZE(o);
         value_t*array = array_new();
         for(i=0;i<l;i++) {
-            PyObject*o = PyTuple_GET_ITEM(o, i);
-            array_append(array, pyobject_to_value(li, o));
+            PyObject*e = PyTuple_GetItem(o, i);
+            array_append(array, pyobject_to_value(li, e));
         }
         return array;
     } else {
@@ -73,7 +73,7 @@ static PyObject* value_to_pyobject(language_t*li, value_t*value)
             return PyFloat_FromDouble(value->f32);
         break;
         case TYPE_INT32:
-            return PyLong_FromLong(value->i32);
+            return PyInt_FromLong(value->i32);
         break;
         case TYPE_BOOLEAN:
             return PyBool_FromLong(value->b);

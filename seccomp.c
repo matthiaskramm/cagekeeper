@@ -8,6 +8,7 @@
 #include <sys/signal.h>
 #include <asm/unistd_32.h>
 
+#ifdef DEBUG_SYSCALLS
 static ssize_t my_write(int handle, void*data, int length) {
     if(length < 0)
         length = strlen(data);
@@ -81,12 +82,18 @@ static void hijack_linux_gate(void) {
         : "r" (&do_syscall)
         : "eax");
 };
+#endif
 
 void seccomp_lockdown(int max_memory)
 {
     init_mem_wrapper(max_memory);
 
+#ifdef DEBUG_SYSCALLS
+    hijack_linux_gate();
+#endif
+
     int ret = prctl(PR_SET_SECCOMP, 1, 0, 0, 0);
+
     if(ret) {
         fprintf(stderr, "could not enter secure computation mode\n");
         perror("prctl");
@@ -94,20 +101,3 @@ void seccomp_lockdown(int max_memory)
     }
 }
 
-#ifdef TEST_SECCOMP
-int main()
-{
-    dbg("hi %d %d\n", 1, 3);
-
-    my_write(1, "test\n", -1);
-    hijack_linux_gate();
-    my_write(1, "syscalls hijacked\n", -1);
-
-    prctl(PR_SET_SECCOMP, 1, 0, 0, 0);
-
-    my_write(1, "running\n", 8);
-
-    int* m = malloc(1024);
-    return 0;
-}
-#endif

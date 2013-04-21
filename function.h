@@ -42,13 +42,13 @@ value_t* value_new_boolean(bool b);
 value_t* value_new_float32(float f32);
 value_t* value_new_int32(int32_t i32);
 value_t* value_new_cfunction(fptr_t call, void*context, char*args, char*ret);
+value_t* value_new_array();
 
 void value_dump(value_t*v);
 void value_destroy(value_t*v);
 
 int value_to_int(value_t*v);
 
-value_t* array_new();
 void array_append(value_t*array, value_t* value);
 void array_append_int32(value_t*array, int32_t i32);
 void array_append_float32(value_t*array, float f32);
@@ -58,6 +58,7 @@ void array_destroy(value_t*array);
 
 #define array_append_value array_append 
 #define cfunction_new value_new_cfunction
+value_t* array_new();
 
 extern value_t empty_array;
 extern value_t void_value;
@@ -73,7 +74,6 @@ typedef struct _c_function_def {
 } c_function_def_t;
 
 typedef struct _function_signature {
-    const char* name;
     int num_params;
     type_t*param;
     type_t ret;

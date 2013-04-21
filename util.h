@@ -43,6 +43,8 @@ char* allocprintf(const char*format, ...);
 char* concat_paths(const char*base, const char*add);
 void mkdir_p(const char*path);
 char*read_file(const char*filename);
+
+bool read_with_retry(int fd, void* data, int len);
 bool read_with_timeout(int fd, void* data, int len, struct timeval* timeout);
 
 #ifdef __cplusplus

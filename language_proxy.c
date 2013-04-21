@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include "language.h"
+#include "dict.h"
 #include "seccomp.h"
 
 typedef struct _proxy_internal {
@@ -16,6 +17,7 @@ typedef struct _proxy_internal {
     int fd_r;
     int timeout;
     int max_memory;
+    dict_t*callback_functions;
 } proxy_internal_t;
 
 #define DEFINE_CONSTANT 1
@@ -23,6 +25,9 @@ typedef struct _proxy_internal {
 #define COMPILE_SCRIPT 3
 #define IS_FUNCTION 4
 #define CALL_FUNCTION 5
+
+#define RESP_CALLBACK 10
+#define RESP_RETURN 11
 
 #define MAX_ARRAY_SIZE 1024
 #define MAX_STRING_SIZE 4096
@@ -172,8 +177,55 @@ static void define_function_proxy(language_t*li, const char*name, function_t*f)
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
     dbg("[proxy] define_function(%s)", name);
+    
+    /* let the child know that we're accepting callbacks for this function name */
     write_byte(proxy->fd_w, DEFINE_FUNCTION);
     write_string(proxy->fd_w, name);
+
+    if(dict_contains(proxy->callback_functions, name)) {
+        language_error(li, "function %s already defined", name);
+        return;
+    }
+
+    dict_put(proxy->callback_functions, name, f);
+}
+
+static bool process_callbacks(language_t*li, struct timeval* timeout)
+{
+    proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
+
+    char resp = 0;
+    if(!read_with_timeout(proxy->fd_r, &resp, 1, timeout))
+        return false;
+ 
+    while(1) {
+        switch(resp) {
+            case RESP_CALLBACK: {
+                char*name = read_string(proxy->fd_r, timeout);
+                if(!name)
+                    return false;
+                value_t*args = read_value(proxy->fd_r, timeout);
+                if(!args) {
+                    free(name);
+                    return false;
+                }
+                value_t*function = dict_lookup(proxy->callback_functions, name);
+                if(!function) {
+                    value_destroy(args);
+                    free(name);
+                    return false;
+                }
+                value_t*ret = function->call(function, args);
+                write_value(proxy->fd_w, ret);
+                value_destroy(ret);
+                value_destroy(args);
+                free(name);
+            }
+            break;
+            case RESP_RETURN:
+            return true;
+        }
+    }
 }
 
 static bool compile_script_proxy(language_t*li, const char*script)
@@ -187,6 +239,8 @@ static bool compile_script_proxy(language_t*li, const char*script)
     struct timeval timeout;
     timeout.tv_sec = proxy->timeout;
     timeout.tv_usec = 0;
+
+    process_callbacks(li, &timeout);
 
     bool ret = false;
     if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout))
@@ -224,7 +278,34 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
     timeout.tv_sec = proxy->timeout;
     timeout.tv_usec = 0;
 
+    process_callbacks(li, &timeout);
+
     return read_value(proxy->fd_r, &timeout);
+}
+
+typedef struct _proxy_function {
+    language_t*li;
+    char*name;
+} proxy_function_t;
+
+static void proxy_function_destroy(value_t*v)
+{
+    proxy_function_t*f = (proxy_function_t*)v->internal; 
+    free(f->name);
+    free(v->internal);
+    free(v);
+}
+
+static value_t* proxy_function_call(value_t*v, value_t*args)
+{
+    proxy_function_t*f = (proxy_function_t*)v->internal; 
+    language_t*li = f->li;
+    proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
+
+    write_byte(proxy->fd_w, RESP_CALLBACK);
+    write_string(proxy->fd_w, f->name);
+    write_value(proxy->fd_w, args);
+    return read_value(proxy->fd_r, NULL);
 }
 
 static void child_loop(language_t*li)
@@ -251,24 +332,26 @@ static void child_loop(language_t*li)
             case DEFINE_FUNCTION: {
                 char*name = read_string(r, NULL);
                 dbg("[sandbox] define function(%s)", name);
-                char*params = read_string(r, NULL);
-                char*ret = read_string(r, NULL);
 
-                /*function_t*f = malloc(sizeof(function_t));
-                f->name = name;
-                f->params = params;
-                f->ret = ret;
-                old->define_function(old, f);*/
+                proxy_function_t*pf = calloc(sizeof(proxy_function_t), 1);
+                pf->li = li;
+                pf->name = strdup(name);
 
-                free(params);
-                free(ret);
+                value_t*value = calloc(sizeof(value_t), 1);
+                value->type = TYPE_FUNCTION;
+                value->internal = pf;
+                value->destroy = proxy_function_destroy;
+                value->call = proxy_function_call;
+
+                free(name);
             }
             break;
             case COMPILE_SCRIPT: {
                 char*script = read_string(r, NULL);
                 dbg("[sandbox] compile script");
                 bool ret = old->compile_script(old, script);
-                write(w, &ret, 1);
+                write_byte(w, RESP_RETURN);
+                write_byte(w, ret);
                 free(script);
             }
             break;
@@ -276,7 +359,7 @@ static void child_loop(language_t*li)
                 char*function_name = read_string(r, NULL);
                 dbg("[sandbox] is_function(%s)", function_name);
                 bool ret = old->is_function(old, function_name);
-                write(w, &ret, 1);
+                write_byte(w, ret);
                 free(function_name);
             }
             break;
@@ -285,6 +368,7 @@ static void child_loop(language_t*li)
                 dbg("[sandbox] call_function(%s)", function_name);
                 value_t*args = read_value(r, NULL);
                 value_t*ret = old->call_function(old, function_name, args);
+                write_byte(w, RESP_RETURN);
                 write_value(w, ret);
                 free(function_name);
                 value_destroy(args);
@@ -323,7 +407,7 @@ static bool spawn_child(language_t*li)
         //close(1); // close stdout
         //close(2); // close stderr
 
-        //seccomp_lockdown(proxy->max_memory);
+        seccomp_lockdown(proxy->max_memory);
 
         child_loop(li);
         _exit(0);
@@ -385,6 +469,8 @@ language_t* proxy_new(language_t*old, int max_memory)
         free(li);
         return NULL;
     }
+
+    proxy->callback_functions = dict_new(&ptr_type);
 
     return li;
 }

@@ -128,8 +128,31 @@ char*read_file(const char*filename)
     return script;
 }
 
+bool read_with_retry(int fd, void* data, int len)
+{
+    int pos = 0;
+    while(pos<len) {
+        int ret = read(fd, data+pos, len-pos);
+        if(ret<0) {
+            if(errno == EINTR || errno == EAGAIN)
+                continue;
+            // read error
+            return false;
+        }
+        if(ret==0) {
+            // EOF
+            return false;
+        }
+        pos += ret;
+    }
+    return true;
+}
+
 bool read_with_timeout(int fd, void* data, int len, struct timeval* timeout)
 {
+    if(!timeout) {
+        return read_with_retry(fd, data, len);
+    }
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(fd, &readfds);
