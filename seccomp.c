@@ -47,13 +47,16 @@ static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
             eax, ebx, ecx, edx, esi, edi);
 }
 
-void (*syscall_log)() = _syscall_log;
+static void (*syscall_log)() = _syscall_log;
+static int *errno_location;
 
 static void do_syscall(void) {
     asm(
+        "movl (%%ebp), %%ebp\n" // ignore the gcc prologue
+
+#define LOG_SYSCALLS
 #ifdef LOG_SYSCALLS
         /* log system call */    
-        "movl (%%ebp), %%ebp\n" // ignore the gcc prologue
 	"pushl %%eax\n"
 	"pushl %%ebx\n"
 	"pushl %%ecx\n"
@@ -76,10 +79,12 @@ static void do_syscall(void) {
         "je refuse\n"
         "jmp forward\n"
         "refuse:\n"
-        /*"mov $-1, %%eax\n"
-        "mov %%eax, %1\n" // errno
-        */
+        "push %%ebx\n"
+        "mov $12, %%eax\n" // ENOMEM
+        "mov %1, %%ebx\n"  // errno_location
+        "mov %%eax, (%%ebx)\n"
         "mov $-1, %%eax\n" // return value
+        "pop %%ebx\n"
         "jmp exit\n"
         "forward:\n"
 
@@ -88,7 +93,8 @@ static void do_syscall(void) {
 
         "exit:\n"
         : 
-	: "m" (syscall_log)
+	: "m" (syscall_log),
+	  "m" (errno_location)
         );
 }
 
@@ -117,6 +123,7 @@ void seccomp_lockdown(int max_memory)
     init_mem_wrapper(max_memory);
 
 #ifdef HIJACK_SYSCALLS
+    errno_location = __errno_location();
     hijack_linux_gate();
 #endif
 
