@@ -426,7 +426,6 @@ static bool spawn_child(language_t*li)
         //close(1); // close stdout
         //close(2); // close stderr
 
-        printf("[child] entering secure environment\n");
         seccomp_lockdown(proxy->max_memory);
         printf("[child] running in seccomp mode\n");
 

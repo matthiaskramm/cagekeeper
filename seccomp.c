@@ -4,11 +4,14 @@
 #include <fcntl.h>
 #include <memory.h>
 #include <stdarg.h>
+#include <errno.h>
 #include <sys/prctl.h>
 #include <sys/signal.h>
 #include <asm/unistd_32.h>
 
-#ifdef DEBUG_SYSCALLS
+#define HIJACK_SYSCALLS
+
+#ifdef HIJACK_SYSCALLS
 static ssize_t my_write(int handle, void*data, int length) {
     if(length < 0)
         length = strlen(data);
@@ -41,14 +44,16 @@ static char* dbg(const char*format, ...)
 
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
     dbg("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
-            eax, ebx, ecx, edx, esi, edi
-            );
+            eax, ebx, ecx, edx, esi, edi);
 }
 
 void (*syscall_log)() = _syscall_log;
 
 static void do_syscall(void) {
-    asm("movl (%%ebp), %%ebp\n" // ignore the gcc prologue
+    asm(
+#ifdef LOG_SYSCALLS
+        /* log system call */    
+        "movl (%%ebp), %%ebp\n" // ignore the gcc prologue
 	"pushl %%eax\n"
 	"pushl %%ebx\n"
 	"pushl %%ecx\n"
@@ -62,7 +67,26 @@ static void do_syscall(void) {
 	"popl %%ecx\n"
 	"popl %%ebx\n"
 	"popl %%eax\n"
+#endif
+
+        /* consult blacklist */
+        "cmp $197, %%eax\n" // fstat64
+        "je refuse\n"
+        "cmp $192, %%eax\n" // mmap2
+        "je refuse\n"
+        "jmp forward\n"
+        "refuse:\n"
+        /*"mov $-1, %%eax\n"
+        "mov %%eax, %1\n" // errno
+        */
+        "mov $-1, %%eax\n" // return value
+        "jmp exit\n"
+        "forward:\n"
+
+        /* make the syscall */
         "int $0x080\n"
+
+        "exit:\n"
         : 
 	: "m" (syscall_log)
         );
@@ -92,7 +116,7 @@ void seccomp_lockdown(int max_memory)
 {
     init_mem_wrapper(max_memory);
 
-#ifdef DEBUG_SYSCALLS
+#ifdef HIJACK_SYSCALLS
     hijack_linux_gate();
 #endif
 
