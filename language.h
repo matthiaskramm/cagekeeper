@@ -18,7 +18,7 @@ typedef struct _language {
     int verbosity;
 
     void (*define_constant)(struct _language*li, const char*name, value_t*value);
-    void (*define_function)(struct _language*li, function_def_t*f);
+    void (*define_function)(struct _language*li, const char*name, function_t*f);
 
     bool (*compile_script) (struct _language*li, const char*script);
     bool (*is_function) (struct _language*li, const char*name);
@@ -31,7 +31,7 @@ typedef struct _language {
     const char*error;
 } language_t;
 
-void define_functions(language_t* li, function_def_t*functions);
+void define_c_functions(language_t* li, c_function_def_t*functions);
 
 int call_int_function(language_t* li, const char*name);
 void define_int_constant(language_t* li, const char*name, int value);
@@ -41,6 +41,8 @@ language_t* javascript_interpreter_new();
 language_t* lua_interpreter_new();
 language_t* python_interpreter_new();
 language_t* ruby_interpreter_new();
+
+language_t* wrap_sandbox(language_t*language);
 
 language_t* interpreter_by_extension(const char*filename);
 

@@ -95,6 +95,14 @@ value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, 
     return with_timeout(l, script, function, args, max_seconds, timeout);
 }
 
+language_t* proxy_new(language_t*language, int max_memory);
+
+language_t* wrap_sandbox(language_t*language)
+{
+    int max_memory = 128 * 1048576;
+    return proxy_new(language, max_memory);
+}
+
 language_t* interpreter_by_extension(const char*filename)
 {
     const char*dot = strrchr(filename, '.');
@@ -123,12 +131,14 @@ void define_string_constant(language_t*li, const char*name, const char*s)
     value_destroy(v);
 }
 
-void define_functions(language_t* li, function_def_t*functions)
+void define_c_functions(language_t* li, c_function_def_t*functions)
 {
     int num = count_function_defs(functions);
     int i;
     for(i=0;i<num;i++) {
-        li->define_function(li, &functions[i]);
+        c_function_def_t*f = &functions[i];
+        value_t* v = cfunction_new(f->call, f->context, f->params, f->ret);
+        li->define_function(li, f->name, v);
     }
 }
 
@@ -147,4 +157,3 @@ int call_int_function(language_t*li, const char*name)
     value_destroy(ret);
     return r;
 }
-

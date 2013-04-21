@@ -13,7 +13,7 @@ value_t void_value = {
     type: TYPE_VOID,
 };
 
-int count_function_defs(function_def_t*methods) 
+int count_function_defs(c_function_def_t*methods) 
 {
     int i = 0;
     while(methods[i].name) {
@@ -22,7 +22,7 @@ int count_function_defs(function_def_t*methods)
     return i;
 }
 
-int function_count_args(function_def_t*method) 
+int function_count_args(c_function_def_t*method) 
 {
     const char*a;
     int count = 0;
@@ -59,6 +59,36 @@ static const char* _type_to_string(type_t type)
             return "<unknown>";
         break;
     }
+}
+
+static value_t* value_clone(const value_t*src)
+{
+    switch(src->type) {
+        case TYPE_VOID:
+        break;
+        case TYPE_FLOAT32:
+            return value_new_float32(src->f32);
+        break;
+        case TYPE_INT32:
+            return value_new_int32(src->i32);
+        break;
+        case TYPE_BOOLEAN:
+            return value_new_boolean(src->b);
+        break;
+        case TYPE_STRING:
+            return value_new_string(src->str);
+        break;
+        case TYPE_ARRAY: {
+            value_t*array = array_new();
+            int i;
+            for(i=0;i<src->length;i++) {
+                array_append(array, value_clone(src->data[i]));
+            }
+            return array;
+        }
+        break;
+    }
+    return NULL; 
 }
 
 static ffi_type* _type_to_ffi_type(type_t type)
@@ -105,8 +135,7 @@ static int _parse_type(const char*s, type_t*type)
     return s - start;
 }
 
-
-ffi_type * function_ffi_rtype(function_def_t*method)
+ffi_type * function_ffi_rtype(c_function_def_t*method)
 {
     type_t type;
     _parse_type(method->ret, &type);
@@ -114,7 +143,7 @@ ffi_type * function_ffi_rtype(function_def_t*method)
     return _type_to_ffi_type(type);
 }
 
-ffi_type ** function_ffi_args_plus_one(function_def_t*method)
+ffi_type ** function_ffi_args_plus_one(c_function_def_t*method)
 {
     int num_params = function_count_args(method) + 1;
     ffi_type **atypes = malloc(sizeof(ffi_type*) * num_params);
@@ -131,7 +160,7 @@ ffi_type ** function_ffi_args_plus_one(function_def_t*method)
     return atypes;
 }
 
-function_signature_t* function_get_signature(function_def_t*f)
+function_signature_t* function_get_signature(c_function_def_t*f)
 {
     function_signature_t*sig = malloc(sizeof(function_signature_t));
 
@@ -178,10 +207,12 @@ void function_signature_destroy(function_signature_t*sig)
     free(sig);
 }
 
-function_signature_t* function_signature_verify(function_signature_t*sig, value_t*args)
+static value_t* function_signature_coerce_args(function_signature_t*sig, value_t*args)
 {
     assert(args->type == TYPE_ARRAY);
     assert(sig->num_params == args->length);
+    /* TODO: coerce args */
+    return value_clone(args);
 }
 
 static const char* _ffi_arg_type(const ffi_type*t)
@@ -227,8 +258,10 @@ static void dump_ffi_call(const char*name, const ffi_cif*cif)
     printf("):%s\n", _ffi_arg_type(cif->rtype));
 }
 
-value_t* function_call(void*context, function_def_t*f, value_t*args)
+value_t* cfunction_call(value_t*self, value_t*_args)
 {
+    c_function_def_t*f = self->internal;
+
     function_signature_t*sig = function_get_signature(f);
 
     ffi_cif cif;
@@ -244,14 +277,16 @@ value_t* function_call(void*context, function_def_t*f, value_t*args)
 
 #ifdef DEBUG
     printf("[ffi] ");function_signature_dump(sig);
-    printf("[ffi] args: ");value_dump(args);printf("\n");
+    printf("[ffi] args: ");value_dump(_args);printf("\n");
 #endif
 
-    function_signature_verify(sig, args);
-
+    value_t*args = function_signature_coerce_args(sig, _args);
+    if(args == NULL) {
+        return NULL;
+    }
     void**ffi_args = malloc(sizeof(void*) * (args->length + 1));
     int i;
-    ffi_args[0] = &context;
+    ffi_args[0] = f->context;
     for(i=0;i<args->length;i++) {
         switch(args->data[i]->type) {
             case TYPE_FLOAT32:
@@ -275,6 +310,7 @@ value_t* function_call(void*context, function_def_t*f, value_t*args)
             break;
         }
     }
+    value_destroy(args);
 
     union {
         int32_t i32;
@@ -404,29 +440,50 @@ void array_destroy(value_t*array)
     assert(array->type == TYPE_ARRAY);
     value_destroy(array);
 }
+
 void value_destroy(value_t*v)
 {
-    switch(v->type) {
-        case TYPE_STRING:
-            free(v->str);
-        break;
-        case TYPE_ARRAY: {
-            int i;
-            for(i=0;i<v->length;i++) {
-               value_destroy(v->data[i]);
-               v->data[i] = NULL;
-            }
-            free(v->data);
-            free(v->internal);
-        }
-        break;
+    if(v->destroy) {
+        v->destroy(v);
     }
+}
+
+static void value_destroy_simple(value_t*v)
+{
+    free(v);
+}
+
+static void value_destroy_string(value_t*v)
+{
+    free(v->str);
+    free(v);
+}
+
+static void value_destroy_array(value_t*v)
+{
+    int i;
+    for(i=0;i<v->length;i++) {
+       value_destroy(v->data[i]);
+       v->data[i] = NULL;
+    }
+    free(v->data);
+    free(v->internal);
+    free(v);
+}
+
+static void value_destroy_cfunction(value_t*v)
+{
+    c_function_def_t*f = (c_function_def_t*)v->internal;
+    free(f->params);
+    free(f->ret);
+    free(v->internal);
     free(v);
 }
 
 value_t* value_new_int32(int32_t i32)
 {
     value_t*v = calloc(sizeof(value_t),1);
+    v->destroy = value_destroy_simple;
     v->type = TYPE_INT32;
     v->i32 = i32;
     return v;
@@ -435,6 +492,7 @@ value_t* value_new_int32(int32_t i32)
 value_t* value_new_float32(float f32)
 {
     value_t*v = calloc(sizeof(value_t),1);
+    v->destroy = value_destroy_simple;
     v->type = TYPE_FLOAT32;
     v->f32 = f32;
     return v;
@@ -443,6 +501,7 @@ value_t* value_new_float32(float f32)
 value_t* value_new_boolean(bool b)
 {
     value_t*v = calloc(sizeof(value_t),1);
+    v->destroy = value_destroy_simple;
     v->type = TYPE_BOOLEAN;
     v->b = b;
     return v;
@@ -451,6 +510,7 @@ value_t* value_new_boolean(bool b)
 value_t* value_new_string(const char* s)
 {
     value_t*v = calloc(sizeof(value_t),1);
+    v->destroy = value_destroy_string;
     v->type = TYPE_STRING;
     v->str = strdup(s);
     return v;
@@ -459,7 +519,25 @@ value_t* value_new_string(const char* s)
 value_t* value_new_void()
 {
     value_t*v = calloc(sizeof(value_t),1);
+    v->destroy = value_destroy_simple;
     v->type = TYPE_VOID;
+    return v;
+}
+
+value_t* value_new_cfunction(void (*call)(), void*context, char*params, char*ret)
+{
+    c_function_def_t*f = calloc(sizeof(c_function_def_t), 1);
+    f->name = NULL;
+    f->call = call;
+    f->context = context;
+    f->params = strdup(params);
+    f->ret = strdup(ret);
+
+    value_t*v = calloc(sizeof(value_t),1);
+    v->destroy = value_destroy_cfunction;
+    v->type = TYPE_FUNCTION;
+    v->internal = f;
+    v->call = cfunction_call;
     return v;
 }
 

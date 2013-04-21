@@ -22,7 +22,7 @@ typedef struct _js_internal {
     char*buffer;
     char noerrors;
 
-    dict_t* jsfunction_to_functiondef;
+    dict_t* jsfunction_to_function;
 } js_internal_t;
 
 static JSClass global_class = {
@@ -47,58 +47,40 @@ static void error_callback(JSContext *cx, const char *message, JSErrorReport *re
     }
 }
 
-value_t* js_argv_to_args(language_t*li, JSContext *cx, uintN argc, jsval *argv, function_def_t*f)
+static value_t* jsval_to_value(const js_internal_t*js, jsval v)
 {
-    int i;
-    jsval*sp = argv;
-
-    value_t*args = array_new();
-
-    function_signature_t*sig = function_get_signature(f);
-
     // Also see JS_ConvertArguments()
-    for(i=0;i<sig->num_params;i++) {
-        switch(sig->param[i]) {
-            case TYPE_FLOAT32: {
-                jsdouble d;
-                JS_ValueToNumber(cx, *sp, &d);
-                array_append_float32(args, d);
-            }
-            break;
-            case TYPE_INT32: {
-                int32 i;
-                JS_ValueToInt32(cx, *sp, &i);
-                array_append_int32(args, i);
-            }
-            break;
-            case TYPE_BOOLEAN: {
-                JSBool b;
-                JS_ValueToBoolean(cx, *sp, &b);
-                array_append_boolean(args, b);
-            }
-            break;
-            case TYPE_STRING: {
-                JSString*s = JS_ValueToString(cx, *sp);
-                char*cstr = JS_EncodeString(cx, s);
-                array_append_string(args, cstr);
-            }
-            break;
-            case TYPE_ARRAY: {
-                language_error(li, "Passing arrays out of javascript not yet supported.");
-                array_append_boolean(args, false);
-            }
-            break;
-            case TYPE_VOID:
-            default: {
-                fprintf(stderr, "Internal error: can't convert type %d", sig->param[i]);
-                assert(0);
-            }
-            break;
-        }
-        sp++;
+    int32 d;
+    if(JSVAL_IS_NULL(v)) {
+        return value_new_void();
+    } else if(JSVAL_IS_VOID(v)) {
+        return value_new_void();
+    } else if(JSVAL_IS_INT(v)) {
+        return value_new_int32(JSVAL_TO_INT(v));
+    } else if(JSVAL_IS_NUMBER(v)) {
+        return value_new_float32(JSVAL_TO_DOUBLE(v));
+    } else if(JSVAL_IS_STRING(v) || JSVAL_IS_OBJECT(v)) {
+        JSString*s = JSVAL_TO_STRING(v);
+        char*cstr = JS_EncodeString(js->cx, s);
+        return value_new_string(cstr);
+    } else if(JSVAL_IS_BOOLEAN(v)) {
+        return value_new_boolean(JSVAL_TO_BOOLEAN(v));
+    } else {
+        /* TODO: arrays */
+        language_error(js->li, "Can't convert javascript type to a value.\n");
+        return NULL;
     }
-    function_signature_destroy(sig);
+}
 
+static value_t* js_argv_to_args(language_t*li, JSContext *cx, uintN argc, jsval *argv)
+{
+    js_internal_t*js = (js_internal_t*)li->internal;
+
+    int i;
+    value_t*args = array_new();
+    for(i=0;i<argc;i++) {
+        array_append(args, jsval_to_value(js, argv[i]));
+    }
     return args;
 }
 
@@ -153,15 +135,15 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
         return JS_FALSE;
     }
 
-    function_def_t*f = dict_lookup(js->jsfunction_to_functiondef, func);
+    function_t*f = dict_lookup(js->jsfunction_to_function, func);
     if(!f) {
         language_error(js->li, "Internal error: Javascript tried to call native function %p (%d args), which we've never seen before.", func, argc);
         return JS_FALSE;
     }
 
-    dbg("js native call to %s\n", f->name);
-    value_t* args = js_argv_to_args(js->li, cx, argc, argv, f);
-    value_t* value = function_call(js->li, f, args);
+    dbg("js native call\n");
+    value_t* args = js_argv_to_args(js->li, cx, argc, argv);
+    value_t* value = f->call(f, args);
     value_destroy(args);
 
     JS_SET_RVAL(cx, vp, value_to_jsval(cx, value));
@@ -169,16 +151,16 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
     return JS_TRUE;
 }
 
-static void define_function_js(language_t*li, function_def_t*f)
+static void define_function_js(language_t*li, const char*name, function_t*f)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
     JSFunction*func = JS_DefineFunction(js->cx, js->global, 
-                          f->name, 
+                          name, 
                           js_function_proxy,
-                          function_count_args(f),
+                          /*FIXME function_count_args(f),*/0,
                           0
                        );
-    dict_put(js->jsfunction_to_functiondef, func, f);
+    dict_put(js->jsfunction_to_function, func, f);
 }
 
 bool init_js(js_internal_t*js)
@@ -205,7 +187,7 @@ bool init_js(js_internal_t*js)
         return false;
 
     js->buffer = malloc(65536);
-    js->jsfunction_to_functiondef = dict_new(&ptr_type);
+    js->jsfunction_to_function = dict_new(&ptr_type);
     return true;
 }
 
@@ -246,29 +228,6 @@ static bool is_function_js(language_t*li, const char*name)
     if(JSVAL_IS_OBJECT(rval))
         return true;
     return false;
-}
-
-static value_t* jsval_to_value(js_internal_t*js, jsval v)
-{
-    int32 d;
-    if(JSVAL_IS_NULL(v)) {
-        return value_new_void();
-    } else if(JSVAL_IS_VOID(v)) {
-        return value_new_void();
-    } else if(JSVAL_IS_INT(v)) {
-        return value_new_int32(JSVAL_TO_INT(v));
-    } else if(JSVAL_IS_NUMBER(v)) {
-        return value_new_float32(JSVAL_TO_DOUBLE(v));
-    } else if(JSVAL_IS_STRING(v) || JSVAL_IS_OBJECT(v)) {
-        JSString*s = JSVAL_TO_STRING(v);
-        char*cstr = JS_EncodeString(js->cx, s);
-        return value_new_string(cstr);
-    } else if(JSVAL_IS_BOOLEAN(v)) {
-        return value_new_boolean(JSVAL_TO_BOOLEAN(v));
-    } else {
-        language_error(js->li, "Can't convert javascript type to a value.\n");
-        return NULL;
-    }
 }
 
 static value_t* call_function_js(language_t*li, const char*name, value_t* args)

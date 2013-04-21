@@ -2,7 +2,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <signal.h>
 #include "language.h"
+#include "seccomp.h"
 
 typedef struct _proxy_internal {
     language_t*li;
@@ -11,6 +15,7 @@ typedef struct _proxy_internal {
     int fd_w;
     int fd_r;
     int timeout;
+    int max_memory;
 } proxy_internal_t;
 
 #define DEFINE_CONSTANT 1
@@ -44,7 +49,7 @@ static char* read_string(int fd, struct timeval* timeout)
     char* s = malloc(l+1);
     if(!s)
         return NULL;
-    if(!read_with_timeout(fd, s, l+1, timeout))
+    if(!read_with_timeout(fd, s, l, timeout))
         return NULL;
     s[l]=0;
     return s;
@@ -156,25 +161,26 @@ static void define_constant_proxy(language_t*li, const char*name, value_t*value)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
+    dbg("[proxy] define_constant(%s)", name);
     write_byte(proxy->fd_w, DEFINE_CONSTANT);
     write_string(proxy->fd_w, name);
     write_value(proxy->fd_w, value);
 }
 
-static void define_function_proxy(language_t*li, function_def_t*f)
+static void define_function_proxy(language_t*li, const char*name, function_t*f)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
+    dbg("[proxy] define_function(%s)", name);
     write_byte(proxy->fd_w, DEFINE_FUNCTION);
-    write_string(proxy->fd_w, f->name);
-    write_string(proxy->fd_w, f->params);
-    write_string(proxy->fd_w, f->ret);
+    write_string(proxy->fd_w, name);
 }
 
 static bool compile_script_proxy(language_t*li, const char*script)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
+    dbg("[proxy] compile_script()");
     write_byte(proxy->fd_w, COMPILE_SCRIPT);
     write_string(proxy->fd_w, script);
 
@@ -192,6 +198,7 @@ static bool is_function_proxy(language_t*li, const char*name)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
+    dbg("[proxy] is_function(%s)", name);
     write_byte(proxy->fd_w, IS_FUNCTION);
     write_string(proxy->fd_w, name);
 
@@ -209,6 +216,7 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
+    dbg("[proxy] call_function(%s)", name);
     write_byte(proxy->fd_w, CALL_FUNCTION);
     write_string(proxy->fd_w, name);
 
@@ -219,14 +227,139 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
     return read_value(proxy->fd_r, &timeout);
 }
 
+static void child_loop(language_t*li)
+{
+    proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
+    language_t*old = proxy->old;
+
+    int r = proxy->fd_r;
+    int w = proxy->fd_w;
+
+    while(1) {
+        char command;
+        read(r, &command, 1);
+        dbg("[sandbox] command=%d", command);
+        switch(command) {
+            case DEFINE_CONSTANT: {
+                char*s = read_string(r, NULL);
+                dbg("[sandbox] define constant(%s)", s);
+                value_t*v = read_value(r, NULL);
+                old->define_constant(old, s, v);
+                value_destroy(v);
+            }
+            break;
+            case DEFINE_FUNCTION: {
+                char*name = read_string(r, NULL);
+                dbg("[sandbox] define function(%s)", name);
+                char*params = read_string(r, NULL);
+                char*ret = read_string(r, NULL);
+
+                /*function_t*f = malloc(sizeof(function_t));
+                f->name = name;
+                f->params = params;
+                f->ret = ret;
+                old->define_function(old, f);*/
+
+                free(params);
+                free(ret);
+            }
+            break;
+            case COMPILE_SCRIPT: {
+                char*script = read_string(r, NULL);
+                dbg("[sandbox] compile script");
+                bool ret = old->compile_script(old, script);
+                write(w, &ret, 1);
+                free(script);
+            }
+            break;
+            case IS_FUNCTION: {
+                char*function_name = read_string(r, NULL);
+                dbg("[sandbox] is_function(%s)", function_name);
+                bool ret = old->is_function(old, function_name);
+                write(w, &ret, 1);
+                free(function_name);
+            }
+            break;
+            case CALL_FUNCTION: {
+                char*function_name = read_string(r, NULL);
+                dbg("[sandbox] call_function(%s)", function_name);
+                value_t*args = read_value(r, NULL);
+                value_t*ret = old->call_function(old, function_name, args);
+                write_value(w, ret);
+                free(function_name);
+                value_destroy(args);
+                value_destroy(ret);
+            }
+            break;
+            default: {
+                fprintf(stderr, "Invalid command %d\n", command);
+            }
+        }
+    }
+}
+
+static bool spawn_child(language_t*li)
+{
+    proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
+
+    int p_to_c[2];
+    int c_to_p[2];
+    int stdout_pipe[2];
+    int stderr_pipe[2];
+
+    if(pipe(p_to_c) || pipe(c_to_p) || pipe(stdout_pipe) || pipe(stderr_pipe)) {
+        perror("create pipe");
+        return false;
+    }
+
+    proxy->child_pid = fork();
+    if(!proxy->child_pid) {
+        //child
+        close(p_to_c[1]); // close write
+        close(c_to_p[0]); // close read
+        proxy->fd_r = p_to_c[0];
+        proxy->fd_w = c_to_p[1];
+
+        //close(1); // close stdout
+        //close(2); // close stderr
+
+        //seccomp_lockdown(proxy->max_memory);
+
+        child_loop(li);
+        _exit(0);
+    }
+
+    //parent
+    close(c_to_p[1]); // close write
+    close(p_to_c[0]); // close read
+    proxy->fd_r = c_to_p[0];
+    proxy->fd_w = p_to_c[1];
+    return true;
+}
+
 static void destroy_proxy(language_t* li)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
+
+    language_t*old = proxy->old;
+
+    kill(proxy->child_pid, SIGKILL);
+    int status = 0;
+    int ret = waitpid(proxy->child_pid, &status, WNOHANG);
+    if(WIFSIGNALED(status)) {
+        printf("%08x signal=%d\n", ret, WTERMSIG(status));
+    } else if(WIFEXITED(status)) {
+        printf("%08x exit=%d\n", ret, WEXITSTATUS(status));
+    } else {
+        printf("%08x unknown exit reason. status=%d\n", ret, status);
+    }
     free(proxy);
     free(li);
+
+    old->destroy(old);
 }
 
-language_t* proxy_new(language_t*old)
+language_t* proxy_new(language_t*old, int max_memory)
 {
     language_t * li = calloc(1, sizeof(language_t));
 #ifdef DEBUG
@@ -244,5 +377,14 @@ language_t* proxy_new(language_t*old)
     proxy->li = li;
     proxy->old = old;
     proxy->timeout = 10;
+    proxy->max_memory = max_memory;
+
+    if(!spawn_child(li)) {
+        fprintf(stderr, "Couldn't spawn child process\n");
+        free(proxy);
+        free(li);
+        return NULL;
+    }
+
     return li;
 }

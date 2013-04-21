@@ -16,8 +16,9 @@ static PyTypeObject FunctionProxyClass;
 
 typedef struct {
     PyObject_HEAD
+    char*name;
     py_internal_t*py_internal;
-    function_def_t*function;
+    function_t*function;
 } FunctionProxyObject;
 
 value_t* pyobject_to_value(language_t*li, PyObject*o)
@@ -102,14 +103,14 @@ static PyObject* python_method_proxy(PyObject* _self, PyObject* _args)
     FunctionProxyObject* self = (FunctionProxyObject*)_self;
 
 #ifdef DEBUG
-    printf("[python] %s", self->function->name);
+    printf("[python] %s", self->name);
     _args->ob_type->tp_print(_args, stdout, 0);
     printf("\n");
 #endif
 
     language_t*li = self->py_internal->li;
     value_t*args = pyobject_to_value(li, _args);
-    value_t*ret = function_call(li, self->function, args);
+    value_t*ret = self->function->call(self->function, args);
     value_destroy(args);
 
     PyObject*pret = value_to_pyobject(li, ret);
@@ -193,31 +194,39 @@ static void define_constant_py(language_t*li, const char*name, value_t*value)
     PyVarObject_HEAD_INIT(&PyType_Type, 0)
 #endif
 
+static void functionproxy_dealloc(PyObject* _self) {
+    FunctionProxyObject* self = (FunctionProxyObject*)_self;
+    if(self->name)
+        free(self->name);
+    PyObject_Del(self);
+}
 static PyTypeObject FunctionProxyClass =
 {
     PYTHON_HEAD_INIT
     tp_name: "FunctionProxy",
     tp_basicsize: sizeof(FunctionProxyObject),
     tp_itemsize: 0,
+    tp_dealloc: functionproxy_dealloc,
 };
 
-static void define_function_py(language_t*li, function_def_t*f)
+static void define_function_py(language_t*li, const char*name, function_t*f)
 {
     py_internal_t*py_internal = (py_internal_t*)li->internal;
 
     PyObject*dict = py_internal->globals;
 
     PyMethodDef*m = calloc(sizeof(PyMethodDef), 1);
-    m->ml_name = f->name;
+    m->ml_name = name;
     m->ml_meth = python_method_proxy;
     m->ml_flags = METH_VARARGS;
 
     FunctionProxyObject*self = PyObject_New(FunctionProxyObject, &FunctionProxyClass);
+    self->name = strdup(name);
     self->function = f;
     self->py_internal = py_internal;
 
     PyObject*cfunction = PyCFunction_New(m, (PyObject*)self);
-    PyDict_SetItemString(dict, f->name, cfunction);
+    PyDict_SetItemString(dict, name, cfunction);
 }
 
 static int py_reference_count = 0;
