@@ -18,6 +18,7 @@ typedef struct _proxy_internal {
     int timeout;
     int max_memory;
     dict_t*callback_functions;
+    bool in_call;
 } proxy_internal_t;
 
 #define DEFINE_CONSTANT 1
@@ -195,8 +196,9 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
     char resp = 0;
-    if(!read_with_timeout(proxy->fd_r, &resp, 1, timeout))
+    if(!read_with_timeout(proxy->fd_r, &resp, 1, timeout)) {
         return false;
+    }
  
     while(1) {
         switch(resp) {
@@ -240,7 +242,13 @@ static bool compile_script_proxy(language_t*li, const char*script)
     timeout.tv_sec = proxy->timeout;
     timeout.tv_usec = 0;
 
+    if(proxy->in_call) {
+        language_error(li, "You called (or compiled) the guest program, and the guest program called back. You can't invoke the guest again from your callback function.");
+        return NULL;
+    }
+    proxy->in_call = true;
     process_callbacks(li, &timeout);
+    proxy->in_call = false;
 
     bool ret = false;
     if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout))
@@ -273,12 +281,19 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
     dbg("[proxy] call_function(%s)", name);
     write_byte(proxy->fd_w, CALL_FUNCTION);
     write_string(proxy->fd_w, name);
+    write_value(proxy->fd_w, args);
 
     struct timeval timeout;
     timeout.tv_sec = proxy->timeout;
     timeout.tv_usec = 0;
 
+    if(proxy->in_call) {
+        language_error(li, "You called the guest program, and the guest program called back. You can't invoke the guest again from your callback function.");
+        return NULL;
+    }
+    proxy->in_call = true;
     process_callbacks(li, &timeout);
+    proxy->in_call = false;
 
     return read_value(proxy->fd_r, &timeout);
 }
@@ -318,7 +333,9 @@ static void child_loop(language_t*li)
 
     while(1) {
         char command;
-        read(r, &command, 1);
+        if(!read_with_retry(r, &command, 1))
+            _exit(1);
+
         dbg("[sandbox] command=%d", command);
         switch(command) {
             case DEFINE_CONSTANT: {
@@ -365,9 +382,10 @@ static void child_loop(language_t*li)
             break;
             case CALL_FUNCTION: {
                 char*function_name = read_string(r, NULL);
-                dbg("[sandbox] call_function(%s)", function_name);
+                dbg("[sandbox] call_function(%s)", function_name, old->name);
                 value_t*args = read_value(r, NULL);
                 value_t*ret = old->call_function(old, function_name, args);
+                dbg("[sandbox] returning function value (%s)", type_to_string(ret->type));
                 write_byte(w, RESP_RETURN);
                 write_value(w, ret);
                 free(function_name);
@@ -404,10 +422,13 @@ static bool spawn_child(language_t*li)
         proxy->fd_r = p_to_c[0];
         proxy->fd_w = c_to_p[1];
 
+        // TODO
         //close(1); // close stdout
         //close(2); // close stderr
 
+        printf("[child] entering secure environment\n");
         seccomp_lockdown(proxy->max_memory);
+        printf("[child] running in seccomp mode\n");
 
         child_loop(li);
         _exit(0);
@@ -453,6 +474,7 @@ language_t* proxy_new(language_t*old, int max_memory)
     li->compile_script = compile_script_proxy;
     li->is_function = is_function_proxy;
     li->call_function = call_function_proxy;
+    li->define_function = define_function_proxy;
     li->define_constant = define_constant_proxy;
     li->destroy = destroy_proxy;
     li->internal = calloc(1, sizeof(proxy_internal_t));

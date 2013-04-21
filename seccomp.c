@@ -71,7 +71,7 @@ static void do_syscall(void) {
 static void*old_syscall_handler = (void*)0x12345678;
 
 static void hijack_linux_gate(void) {
-    // all your sys calls are belong to us!
+    // all your system calls are belong to us!
     asm("mov %%gs:0x10, %%eax\n"
         "mov %%eax, %0\n"
 
@@ -84,6 +84,10 @@ static void hijack_linux_gate(void) {
 };
 #endif
 
+#ifndef SECCOMP_MODE_STRICT
+#define SECCOMP_MODE_STRICT 1
+#endif
+
 void seccomp_lockdown(int max_memory)
 {
     init_mem_wrapper(max_memory);
@@ -92,7 +96,7 @@ void seccomp_lockdown(int max_memory)
     hijack_linux_gate();
 #endif
 
-    int ret = prctl(PR_SET_SECCOMP, 1, 0, 0, 0);
+    int ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
 
     if(ret) {
         fprintf(stderr, "could not enter secure computation mode\n");

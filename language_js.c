@@ -210,6 +210,7 @@ static bool compile_script_js(language_t*li, const char*script)
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
     JSBool ok;
+    dbg("[javascript] compiling script");
     ok = JS_EvaluateScript(js->cx, js->global, script, strlen(script), "__main__", 1, &rval);
     return ok;
 }
@@ -235,6 +236,7 @@ static value_t* call_function_js(language_t*li, const char*name, value_t* args)
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
     JSBool ok;
+    dbg("[javascript] calling function %s", name);
     assert(args->type == TYPE_ARRAY);
     if(args->length) {
         language_error(js->li, "calling function with arguments not supported yet in javascript\n");

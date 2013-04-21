@@ -38,7 +38,7 @@ int function_count_args(c_function_def_t*method)
     return count;
 }
 
-static const char* _type_to_string(type_t type)
+const char* type_to_string(type_t type)
 {
     switch(type) {
         case TYPE_VOID:
@@ -143,7 +143,7 @@ ffi_type * function_ffi_rtype(c_function_def_t*method)
 {
     type_t type;
     _parse_type(method->ret, &type);
-    dbg("[ffi] ret type: \"%s\" %s", method->ret, _type_to_string(type));
+    dbg("[ffi] ret type: \"%s\" %s", method->ret, type_to_string(type));
     return _type_to_ffi_type(type);
 }
 
@@ -199,9 +199,9 @@ void function_signature_dump(function_signature_t*sig)
     for(i=0;i<sig->num_params;i++) {
         if(i>0)
             printf(", ");
-        printf("%s", _type_to_string(sig->param[i]));
+        printf("%s", type_to_string(sig->param[i]));
     }
-    printf("):%s\n", _type_to_string(sig->ret));
+    printf("):%s\n", type_to_string(sig->ret));
 }
 
 void function_signature_destroy(function_signature_t*sig)
@@ -361,6 +361,11 @@ value_t* cfunction_call(value_t*self, value_t*_args)
 
 void value_dump(value_t*v)
 {
+    if(v == NULL) {
+        printf("null value (error)");
+        return;
+    }
+
     switch(v->type) {
         case TYPE_VOID:
             printf("void");

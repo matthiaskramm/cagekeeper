@@ -21,9 +21,11 @@ typedef struct {
     function_t*function;
 } FunctionProxyObject;
 
-value_t* pyobject_to_value(language_t*li, PyObject*o)
+static value_t* pyobject_to_value(language_t*li, PyObject*o)
 {
-    if(PyUnicode_Check(o)) {
+    if(o == Py_None) {
+        return value_new_void();
+    } else if(PyUnicode_Check(o)) {
         return value_new_string(PyUnicode_AS_DATA(o));
     } else if(PyString_Check(o)) {
         return value_new_string(PyString_AsString(o));
@@ -63,7 +65,7 @@ value_t* pyobject_to_value(language_t*li, PyObject*o)
     }
 }
 
-static PyObject* value_to_pyobject(language_t*li, value_t*value)
+static PyObject* value_to_pyobject(language_t*li, value_t*value, bool arrays_as_tuples)
 {
     switch(value->type) {
         case TYPE_VOID:
@@ -83,17 +85,31 @@ static PyObject* value_to_pyobject(language_t*li, value_t*value)
         }
         break;
         case TYPE_ARRAY: {
-            PyObject *array = PyList_New(value->length);
-            int i;
-            for(i=0;i<value->length;i++) {
-                PyObject*entry = value_to_pyobject(li, value->data[i]);
-                PyList_SetItem(array, i, entry);
+            if(arrays_as_tuples) {
+                PyObject *array = PyTuple_New(value->length);
+                int i;
+                for(i=0;i<value->length;i++) {
+                    PyObject*entry = value_to_pyobject(li, value->data[i], false);
+                    if(!entry)
+                        return NULL;
+                    PyTuple_SetItem(array, i, entry);
+                }
+                return array;
+            } else {
+                PyObject *array = PyList_New(value->length);
+                int i;
+                for(i=0;i<value->length;i++) {
+                    PyObject*entry = value_to_pyobject(li, value->data[i], false);
+                    if(!entry)
+                        return NULL;
+                    PyList_SetItem(array, i, entry);
+                }
+                return array;
             }
-            return array;
         }
         break;
         default: {
-            assert(0);
+            return NULL;
         }
     }
 }
@@ -113,7 +129,7 @@ static PyObject* python_method_proxy(PyObject* _self, PyObject* _args)
     value_t*ret = self->function->call(self->function, args);
     value_destroy(args);
 
-    PyObject*pret = value_to_pyobject(li, ret);
+    PyObject*pret = value_to_pyobject(li, ret, false);
     value_destroy(ret);
 
     return pret;
@@ -130,9 +146,7 @@ static bool compile_script_py(language_t*li, const char*script)
 
     PyObject* ret = PyRun_String(script, Py_file_input, py->globals, NULL);
     if(ret == NULL) {
-        if(li->verbosity>0) {
-            PyErr_Print();
-        }
+        PyErr_Print();
         PyErr_Clear();
     }
 #ifdef DEBUG
@@ -148,32 +162,48 @@ static bool compile_script_py(language_t*li, const char*script)
 static bool is_function_py(language_t*li, const char*name)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
-    dbg("[python] checking for function %s", name);
-    PyObject* ret = PyRun_String(name, Py_eval_input, py->globals, py->globals);
-    if(ret) {
-        Py_DecRef(ret);
-        return true;
-    }
-    PyErr_Clear();
-    return false;
+
+    PyObject*function = PyDict_GetItemString(py->globals, name);
+
+    return function != NULL;
 }
 
-static value_t* call_function_py(language_t*li, const char*name, value_t*args)
+static value_t* call_function_py(language_t*li, const char*name, value_t*_args)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
     dbg("[python] calling function %s", name);
 
-    char*script = allocprintf("%s()", name);
-    PyObject* ret = PyRun_String(script, Py_eval_input, py->globals, py->globals);
+    PyObject*function = PyDict_GetItemString(py->globals, name);
+    if(function == NULL) {
+        language_error(li, "Couldn't find function %s", name);
+        return NULL;
+    }
+
+    if(!PyCallable_Check(function)) {
+        language_error(li, "Object %s is not callable", name);
+        return NULL;
+    }
+
+    ternaryfunc call =  function->ob_type->tp_call;
+    if(call == NULL) {
+        language_error(li, "Object %s is not callable", name);
+        return NULL;
+    }
+
+    PyObject*args = value_to_pyobject(li, _args, true);
+    if(!args)
+        return NULL;
+    PyObject*kwargs = PyDict_New();
+    //PyObject*ret = PyObject_Call(function, args, kwargs);
+    PyObject*ret = PyObject_CallObject(function, args);
+    Py_DECREF(kwargs);
+    Py_DECREF(args);
+
     if(ret == NULL) {
-        if(li->verbosity>0) {
-            PyErr_Print();
-        }
+        PyErr_Print();
         PyErr_Clear();
-        free(script);
         return NULL;
     } else {
-        free(script);
         return pyobject_to_value(li, ret);
     }
 }
@@ -182,7 +212,7 @@ static void define_constant_py(language_t*li, const char*name, value_t*value)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
     dbg("[python] defining constant %s", name);
-    PyDict_SetItem(py->globals, PyString_FromString(name), value_to_pyobject(li, value));
+    PyDict_SetItem(py->globals, PyString_FromString(name), value_to_pyobject(li, value, false));
 }
 
 #if PY_MAJOR_VERSION < 3
@@ -248,8 +278,8 @@ static bool init_py(py_internal_t*py)
     py->globals = PyDict_New();
     py->buffer = malloc(65536);
 
-    PyObject* module = PyImport_AddModule("__main__");
-    PyObject* globals = PyModule_GetDict(module);
+    py->module = PyImport_AddModule("__main__");
+    PyObject* globals = PyModule_GetDict(py->module);
 
     PyDict_Update(py->globals, globals);
 

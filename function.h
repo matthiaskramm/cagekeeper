@@ -14,6 +14,8 @@ typedef enum _type {
     TYPE_FUNCTION,
 } type_t;
 
+const char* type_to_string(type_t type);
+
 typedef struct _value value_t;
 typedef struct _value function_t;
 
