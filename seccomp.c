@@ -53,8 +53,6 @@ static int *errno_location;
 static void do_syscall(void) {
     asm(
         "movl (%%ebp), %%ebp\n" // ignore the gcc prologue
-
-#define LOG_SYSCALLS
 #ifdef LOG_SYSCALLS
         /* log system call */    
 	"pushl %%eax\n"
