@@ -50,7 +50,7 @@ bool init_lua(lua_internal_t*lua)
     openlualibs(l);
 }
 
-static bool define_function_lua(language_t*li, const char*script)
+static bool compile_script_lua(language_t*li, const char*script)
 {
     lua_internal_t*lua = (lua_internal_t*)li->internal;
     lua_State*l = lua->state;
@@ -61,7 +61,7 @@ static bool define_function_lua(language_t*li, const char*script)
     }
     if(error) {
         show_error(li, l);
-        printf("Couldn't compile: %d\n", error);
+        language_error(li, "Couldn't compile: %d\n", error);
         return false;
     }
     return true;
@@ -78,34 +78,43 @@ static bool is_function_lua(language_t*li, const char*name)
     return ret;
 }
 
-static int call_function_lua(language_t*li, const char*name)
-{
-    lua_internal_t*lua = (lua_internal_t*)li->internal;
-    lua_State*l = lua->state;
-    lua_getfield(l, LUA_GLOBALSINDEX, name);
-    int error = lua_pcall(l, /*nargs*/0, /*nresults*/1, 0);
-    if(error) {
-        show_error(li, l);
-        printf("Couldn't run: %d\n", error);
-        return -1;
+static value_t* lua_to_value(lua_State*l)
+    if(lua_isnoneornil(l, -1)) {
+        return value_new_void();
+    } else if(lua_isboolean(l, -1)) {
+        return value_new_boolean(lua_toboolean(l, -1));
+    } else if(lua_isnumber(l, -1)) {
+        return value_new_float32(lua_tonumber(l, -1));
+    } else if(lua_isnumber(l, -1)) {
+        return value_new_int32(lua_tointeger(l, -1));
+    } else if(lua_isstring(l, -1)) {
+        return value_new_string(lua_tostring(l, -1));
+    } else if(lua_istable(l, -1)) {
+        /* FIXME */
     }
-    int ret = lua_tointeger(l, -1);
-    lua_pop(l, 1);
-    return ret;
+    return NULL;
 }
 
-static bool call_void_function_lua(language_t*li, const char*name)
+static value_t* call_function_lua(language_t*li, const char*name, value_t*args)
 {
     lua_internal_t*lua = (lua_internal_t*)li->internal;
     lua_State*l = lua->state;
     lua_getfield(l, LUA_GLOBALSINDEX, name);
-    int error = lua_pcall(l, /*nargs*/0, /*nresults*/0, 0);
+    if(lua_isnil(l, -1)) {
+        language_error(li, "%s is not a function", name);
+        return NULL;
+    }
+
+    int error = lua_pcall(l, /*nargs*/args->length, /*nresults*/1, 0);
     if(error) {
         show_error(li, l);
-        printf("Couldn't run: %d\n", error);
-        return false;
+        language_error(li, "Couldn't run: %d\n", error);
+        return NULL;
     }
-    return true;
+
+    value_t*ret = lua_to_value(l);
+    lua_pop(l, 1);
+    return ret;
 }
 
 static void destroy_lua(language_t* li)
@@ -123,10 +132,9 @@ language_t* lua_interpreter_new()
     li->magic = LANG_MAGIC;
 #endif
     li->name = "lua";
-    li->define_function = define_function_lua;
+    li->compile_script = compile_script_lua;
     li->is_function = is_function_lua;
     li->call_function = call_function_lua;
-    li->call_void_function = call_void_function_lua;
     li->destroy = destroy_lua;
     li->internal = calloc(1, sizeof(lua_internal_t));
     lua_internal_t*lua = (lua_internal_t*)li->internal;
