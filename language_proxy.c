@@ -400,6 +400,22 @@ static void child_loop(language_t*li)
     }
 }
 
+static void close_all_fds(int*keep, int keep_num)
+{
+    int max=sysconf(_SC_OPEN_MAX);
+    int fd;
+    for(fd=0; fd<max; fd++) {
+        int j;
+        bool do_keep = false;
+        for(j=0;j<keep_num;j++) {
+            do_keep |= keep[j] == fd;
+        }
+        if(!do_keep) {
+            close(fd);
+        }
+    }
+}
+
 static bool spawn_child(language_t*li)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
@@ -417,14 +433,11 @@ static bool spawn_child(language_t*li)
     proxy->child_pid = fork();
     if(!proxy->child_pid) {
         //child
-        close(p_to_c[1]); // close write
-        close(c_to_p[0]); // close read
         proxy->fd_r = p_to_c[0];
         proxy->fd_w = c_to_p[1];
 
-        // TODO
-        //close(1); // close stdout
-        //close(2); // close stderr
+        int keep[] = {1, 2, proxy->fd_r, proxy->fd_w};
+        close_all_fds(keep, sizeof(keep)/sizeof(keep[0]));
 
         seccomp_lockdown(proxy->max_memory);
         printf("[child] running in seccomp mode\n");
