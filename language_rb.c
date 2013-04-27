@@ -24,10 +24,9 @@ static bool init_rb(rb_internal_t*rb)
     rb->object = rb_eval_string("Object");
 }
 
-static void rb_report_error()
+static void rb_report_error(VALUE error)
 {
-    VALUE lasterr = rb_gv_get("$!");
-    VALUE message = rb_obj_as_string(lasterr);
+    volatile VALUE message = rb_obj_as_string(error);
     char*msg = RSTRING(message)->ptr;
     if(msg && *msg) {
         printf("Ruby Error:\n");
@@ -94,7 +93,7 @@ static VALUE value_to_ruby(value_t*v)
         }
         break;
         case TYPE_ARRAY: {
-            VALUE a = rb_ary_new2(v->length);
+            volatile VALUE a = rb_ary_new2(v->length);
             int i;
             for(i=0;i<v->length;i++) {
                 rb_ary_store(a, i, value_to_ruby(v->data[i]));
@@ -119,14 +118,15 @@ static VALUE compile_script_internal(VALUE _dfunc)
     language_t*li = dfunc->li;
     rb_internal_t*rb = (rb_internal_t*)li->internal;
 
-    VALUE ret = rb_eval_string(dfunc->script);
+    volatile VALUE ret = rb_eval_string(dfunc->script);
     dfunc->fail = false;
     return Qtrue;
 }
 
-static VALUE compile_script_exception(VALUE _dfunc)
+static VALUE compile_script_exception(VALUE _dfunc, VALUE exc)
 {
     ruby_dfunc_t*dfunc = (ruby_dfunc_t*)_dfunc;
+    rb_report_error(exc);
     dfunc->fail = true;
     return Qfalse;
 }
@@ -138,32 +138,41 @@ static bool compile_script_rb(language_t*li, const char*script)
     dfunc.li = li;
     dfunc.script = script;
     dfunc.fail = false;
-    VALUE ret = rb_rescue(compile_script_internal, (VALUE)&dfunc, compile_script_exception, (VALUE)&dfunc);
+    volatile VALUE ret = rb_rescue2(compile_script_internal, (VALUE)&dfunc, compile_script_exception, (VALUE)&dfunc, rb_eException, (VALUE)0);
     return !dfunc.fail;
-}
-
-static void define_constant_rb(language_t*li, const char*name, value_t*value)
-{
-    dbg("[ruby] define constant %s", name);
-    rb_define_global_const(name, value_to_ruby(value));
 }
 
 static VALUE ruby_function_proxy(VALUE self, VALUE _args)
 {
-    printf("calling function %p\n", (void*)self);
     ID id = rb_frame_last_func();
 
-    value_t* function = dict_lookup(global->functions, (void*)id);
-    if(function) {
+    value_t* value = dict_lookup(global->functions, (void*)id);
+    if(!value)
+        return Qnil;
+
+    if(value->type == TYPE_FUNCTION) {
         printf("calling function %s\n", rb_id2name(id));
         value_t*args = ruby_to_value(_args);
-        value_t*ret = function->call(function, args);
+        value_t*ret = value->call(value, args);
         value_destroy(args);
-        VALUE r = value_to_ruby(ret);
+        volatile VALUE r = value_to_ruby(ret);
         value_destroy(ret);
+        return r;
+    } else {
+        volatile VALUE r = value_to_ruby(value);
         return r;
     }
     return Qnil;
+}
+
+static void define_constant_rb(language_t*li, const char*name, value_t*value)
+{
+    rb_internal_t*rb = (rb_internal_t*)li->internal;
+    dbg("[ruby] define function %s", name);
+    rb_define_global_function(name, ruby_function_proxy, -2);
+
+    ID id = rb_intern(name);
+    dict_put(global->functions, (void*)id, value);
 }
 
 static void define_function_rb(language_t*li, const char*name, function_t*f)
@@ -201,17 +210,17 @@ static VALUE call_function_internal(VALUE _fcall)
     int num_args = fcall->args->length;
     volatile ID fname = rb_intern(fcall->function_name);
 
-    VALUE*args = alloca(sizeof(VALUE)*num_args);
+    volatile VALUE*args = alloca(sizeof(VALUE)*num_args);
     int i;
     for(i=0;i<num_args;i++) {
         args[i] = value_to_ruby(fcall->args->data[i]);
     }
-    return rb_funcall2(rb->object, fname, num_args, args);
+    return rb_funcall2(rb->object, fname, num_args, (VALUE*)args);
 }
-static VALUE call_function_exception(VALUE _fcall)
+static VALUE call_function_exception(VALUE _fcall, VALUE exc)
 {
     ruby_fcall_t*fcall = (ruby_fcall_t*)_fcall;
-    rb_report_error();
+    rb_report_error(exc);
     fcall->fail = true;
 }
 static value_t* call_function_rb(language_t*li, const char*name, value_t*args)
@@ -223,7 +232,7 @@ static value_t* call_function_rb(language_t*li, const char*name, value_t*args)
     fcall.args = args;
     fcall.function_name = name;
 
-    VALUE ret = rb_rescue(call_function_internal, (VALUE)&fcall, call_function_exception, (VALUE)&fcall);
+    volatile VALUE ret = rb_rescue(call_function_internal, (VALUE)&fcall, call_function_exception, (VALUE)&fcall);
 
     if(fcall.fail) {
         return NULL;
