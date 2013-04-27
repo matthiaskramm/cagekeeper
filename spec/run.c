@@ -4,6 +4,10 @@
 #include <unistd.h>
 #include "../language.h"
 
+static void trace(void*context, char*s)
+{
+    printf("%s\n", s);
+}
 static value_t* get_array(void*context, int width, int height)
 {
     value_t*columns = array_new();
@@ -62,6 +66,7 @@ static bool negate(void*context, bool b)
 }
 
 c_function_def_t functions[] = {
+    {"trace", (fptr_t)trace, NULL, "s",""},
     {"get_array", (fptr_t)get_array, NULL, "ii","["},
     {"add2", (fptr_t)add2, NULL, "ii", "i"},
     {"add3", (fptr_t)add3, NULL, "iii", "i"},

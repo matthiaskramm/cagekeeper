@@ -4,6 +4,20 @@ function assert(b) {
     }
 }
 
+function compare_arrays(a1, a2) {
+   for(var k in a1) {
+      if(a1[k] !== a2[k]) {
+         return false;
+      }
+   }
+   for(var k in a2) {
+      if(a2[k] !== a1[k]) {
+         return false;
+      }
+   }
+   return true;
+}
+
 function test() {
     assert(add2(3,4) == 7);
     assert(add3(3,4,-5) == 2);
@@ -16,7 +30,8 @@ function test() {
     a1 = [1,2,3];
     a2 = [4,5,6];
     a12 = [1,2,3,4,5,6];
-    assert(concat_arrays(a1, a2) == a12);
+
+    assert(compare_arrays(concat_arrays(a1, a2), a12));
 
     assert(negate(true) === false);
     assert(negate(false) === true);

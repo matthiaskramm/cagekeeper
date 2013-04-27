@@ -37,10 +37,9 @@ static void error_callback(JSContext *cx, const char *message, JSErrorReport *re
     js_internal_t*js = JS_GetContextPrivate(cx);
     if(js->noerrors)
         return;
-    if(js->li->verbosity > 0) {
-        printf("line %u: %s\n",
-            (unsigned int) report->lineno, message);
-    }
+
+    printf("line %u: %s\n", (unsigned int) report->lineno, message);
+
     if(js->li->error_file) {
         fprintf(js->li->error_file, "line %u: %s\n",
             (unsigned int) report->lineno, message);
@@ -59,12 +58,32 @@ static value_t* jsval_to_value(const js_internal_t*js, jsval v)
         return value_new_int32(JSVAL_TO_INT(v));
     } else if(JSVAL_IS_NUMBER(v)) {
         return value_new_float32(JSVAL_TO_DOUBLE(v));
-    } else if(JSVAL_IS_STRING(v) || JSVAL_IS_OBJECT(v)) {
+    } else if(JSVAL_IS_STRING(v)) {
         JSString*s = JSVAL_TO_STRING(v);
         char*cstr = JS_EncodeString(js->cx, s);
         return value_new_string(cstr);
     } else if(JSVAL_IS_BOOLEAN(v)) {
         return value_new_boolean(JSVAL_TO_BOOLEAN(v));
+    } else if(JSVAL_IS_OBJECT(v)) {
+        JSObject * obj = JSVAL_TO_OBJECT(v);
+        jsuint length;
+        bool ret = JS_GetArrayLength(js->cx, obj, &length);
+        if(!ret) {
+            language_error(js->li, "Can't determine array length\n");
+            return NULL;
+        }
+        value_t*a = array_new();
+        int i;
+        for(i=0;i<length;i++) {
+            jsval entry;
+            ret = JS_GetElement(js->cx, obj, i, &entry);
+            if(!ret) {
+                language_error(js->li, "Can't determine array length\n");
+                return NULL;
+            }
+            array_append(a, jsval_to_value(js, entry));
+        }
+        return a;
     } else {
         /* TODO: arrays */
         language_error(js->li, "Can't convert javascript type to a value.\n");
@@ -111,15 +130,13 @@ static jsval value_to_jsval(JSContext*cx, value_t*value)
             int i;
             for(i=0;i<value->length;i++) {
                 jsval entry = value_to_jsval(cx, value->data[i]);
-                char nr[16];
-                sprintf(nr, "%d", i);
-                JS_SetProperty(cx, array, nr, &entry);
+                JS_SetElement(cx, array, i, &entry);
             }
             return OBJECT_TO_JSVAL(array);
         }
         break;
         default: {
-            assert(0);
+            return OBJECT_TO_JSVAL(NULL);
         }
     }
 }
@@ -141,7 +158,7 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
         return JS_FALSE;
     }
 
-    dbg("js native call\n");
+    dbg("[js] native call");
     value_t* args = js_argv_to_args(js->li, cx, argc, argv);
     value_t* value = f->call(f, args);
     value_destroy(args);
