@@ -13,6 +13,7 @@ function call_noargs() {
 
 function call_array(a) {
     assert(typeof(a) == "object")
+    assert(a.length > 0)
     ok += 1
 }
 
@@ -45,12 +46,12 @@ function call_int_and_float_and_string(i,f,s) {
 
 function call_boolean_and_array(b,a) {
     assert(typeof(b) == "boolean")
-    assert(typeof(a) == "array")
+    assert(typeof(a) == "object")
     ok += 1
 }
 
 function test() {
-    assert(Count.ok == 8)
+    assert(ok == 8)
     return "ok"
 }
 

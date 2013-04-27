@@ -248,20 +248,20 @@ static bool is_function_js(language_t*li, const char*name)
     return false;
 }
 
-static value_t* call_function_js(language_t*li, const char*name, value_t* args)
+static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
-    jsval rval;
-    JSBool ok;
     dbg("[javascript] calling function %s", name);
-    assert(args->type == TYPE_ARRAY);
-    if(args->length) {
-        language_error(js->li, "calling function with arguments not supported yet in javascript\n");
-        return NULL;
+    assert(_args->type == TYPE_ARRAY);
+
+    JSBool ok;
+    jsval* args = malloc(sizeof(jsval)*_args->length);
+    int i;
+    for(i=0;i<_args->length;i++) {
+        args[i] = value_to_jsval(js->cx, _args->data[i]);
     }
-    char*script = allocprintf("%s%s", name, "()");
-    ok = JS_EvaluateScript(js->cx, js->global, script, strlen(script), "__main__", 1, &rval);
-    free(script);
+    jsval rval;
+    ok = JS_CallFunctionName(js->cx, js->global, name, _args->length, args, &rval);
     if(!ok) {
         language_error(js->li, "execution of function %s failed\n", name);
         return NULL;
