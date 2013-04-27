@@ -79,30 +79,64 @@ int main(int argn, char*argv[])
         return 1;
     }
     
-    value_t*args = value_new_array();
-
     value_t*ret = NULL;
-    if(l->is_function(l, "test")) {
-        ret = l->call_function(l, "test", args);
-    } else if(l->is_function(l, "test_int")) {
+    if(l->is_function(l, "call_noargs")) {
+        value_t*args = value_new_array();
+        ret = l->call_function(l, "call_noargs", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_int")) {
+        value_t*args = value_new_array();
         array_append_int32(args, 0);
-        ret = l->call_function(l, "test_int", args);
-    } else if(l->is_function(l, "test_float")) {
+        ret = l->call_function(l, "call_int", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_float")) {
+        value_t*args = value_new_array();
         array_append_float32(args, 0);
-        ret = l->call_function(l, "test_float", args);
-    } else if(l->is_function(l, "test_string")) {
+        ret = l->call_function(l, "call_float", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_string")) {
+        value_t*args = value_new_array();
         array_append_string(args, "foobar");
-        ret = l->call_function(l, "test_string", args);
-    } else if(l->is_function(l, "test_boolean")) {
+        ret = l->call_function(l, "call_string", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_boolean")) {
+        value_t*args = value_new_array();
         array_append_boolean(args, false);
-        ret = l->call_function(l, "test_boolean", args);
-    } else if(l->is_function(l, "test_array")) {
+        ret = l->call_function(l, "call_boolean", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_array")) {
+        value_t*args = value_new_array();
         value_t*a = value_new_array();
         array_append(a, value_new_int32(1));
         array_append(a, value_new_int32(2));
         array_append(a, value_new_int32(3));
         array_append(args, a);
-        ret = l->call_function(l, "test_array", args);
+        ret = l->call_function(l, "call_array", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_int_and_float_and_string")) {
+        value_t*args = value_new_array();
+        array_append(args, value_new_int32(1));
+        array_append(args, value_new_float32(2));
+        array_append(args, value_new_string("ok"));
+        ret = l->call_function(l, "call_int_and_float_and_string", args);
+        value_destroy(args);
+    }
+    if(l->is_function(l, "call_boolean_and_array")) {
+        value_t*args = value_new_array();
+        array_append(args, value_new_boolean(true));
+        array_append(args, value_new_array());
+        ret = l->call_function(l, "call_boolean_and_array", args);
+        value_destroy(args);
+    }
+
+    if(l->is_function(l, "test")) {
+        ret = l->call_function(l, "test", NO_ARGS);
     }
 
     l->destroy(l);

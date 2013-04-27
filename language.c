@@ -109,8 +109,7 @@ language_t* interpreter_by_extension(const char*filename)
     const char*extension = dot ? dot+1 : filename;
 
     if(!strcmp(extension, "lua"))
-        //return lua_interpreter_new();
-        return NULL;
+        return lua_interpreter_new();
     else if(!strcmp(extension, "py"))
         return python_interpreter_new();
     else
