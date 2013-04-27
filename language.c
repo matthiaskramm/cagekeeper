@@ -112,6 +112,8 @@ language_t* interpreter_by_extension(const char*filename)
         return lua_interpreter_new();
     else if(!strcmp(extension, "py"))
         return python_interpreter_new();
+    else if(!strcmp(extension, "rb"))
+        return ruby_interpreter_new();
     else
         return javascript_interpreter_new();
 }

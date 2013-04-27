@@ -1,11 +1,13 @@
-all: spec/run testlua 
+all: spec/run testlua testruby testpython
 
 PTMALLOC_CFLAGS=-DUSE_DL_PREFIX -DONLY_MSPACES -DMSPACES -DHAVE_MMAP=0 -DHAVE_REMAP=0 -DHAVE_MORECORE=1 -DMORECORE=sandbox_sbrk -DNO_MALLINFO=1
 LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi)
 PYTHON_CFLAGS=-I/usr/include/python2.7
-RUBY_CFLAGS=-I/usr/lib/ruby/1.8/i686-linux -I. -D_FILE_OFFSET_BITS=64 -fPIC -O2 -march=core2 -mtune=core2 -pipe -fno-strict-aliasing -fPIC
+RUBY_CFLAGS=-I/usr/lib/ruby/1.8/i686-linux -D_FILE_OFFSET_BITS=64 -fno-strict-aliasing
 
-RUBY_LIBS=-lruby18
+RUBY_LDFLAGS=-Wl,-O1 -rdynamic -Wl,-export-dynamic
+
+RUBY_LIBS=-lruby18 -lz -ldl -lcrypt -lm -lc
 PYTHON_LIBS=-lpython2.7 -lpthread
 LUA_LIBS=-llua
 JS_LIBS=-lmozjs185
@@ -18,13 +20,11 @@ MEMWRAP=-Wl,--wrap=malloc \
 	-Wl,--wrap=memalign \
 	-Wl,--wrap=valloc
 
-CC=gcc -Wl,--export-dynamic $(MEMWRAP) -g $(LIBFFI_CFLAGS)
+CC=gcc -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(MEMWRAP) -g $(LIBFFI_CFLAGS)
 
-LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) -lz
+LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) $(RUBY_LIBS)
 
-RUBY_LDFLAGS=-L/usr/lib -Wl,-R/usr/lib -L. -Wl,-O1 -rdynamic -Wl,-export-dynamic -L.. -Wl,-R -Wl,/usr/lib -L/usr/lib -lruby18 -lz -ldl -lcrypt -lm -lc
-
-OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_proxy.o language.o util.o seccomp.o mem.o ptmalloc/malloc.o
+OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_rb.o language_proxy.o language.o util.o seccomp.o mem.o ptmalloc/malloc.o
 
 spec/run: spec/run.o $(OBJECTS)
 	$(CC) spec/run.o $(OBJECTS) $(LIBS) -o $@
@@ -34,6 +34,9 @@ testpython: testpython.o $(OBJECTS)
 
 testlua: testlua.o $(OBJECTS)
 	$(CC) testlua.o $(OBJECTS) $(LIBS) -o $@
+
+testruby: testruby.o $(OBJECTS)
+	$(CC) testruby.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
 
 ptmalloc/malloc.o: ptmalloc/malloc.c ptmalloc/malloc-2.8.3.h
 	$(CC) -c $(PTMALLOC_CFLAGS) -Iptmalloc ptmalloc/malloc.c -o $@
