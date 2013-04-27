@@ -16,7 +16,7 @@ typedef struct _lua_internal {
 
 static const luaL_reg lualibs[] =
 {
-    //{"base", luaopen_base}, // dofile etc.
+    {"base", luaopen_base}, // dofile etc.
     {"table", luaopen_table},
     {"math", luaopen_math},
     {"string", luaopen_string},
@@ -32,6 +32,51 @@ static void openlualibs(lua_State *l)
         lua_settop(l, 0);
     }
 }
+
+static void dump_stack(lua_State *l) {
+    int i;
+    int len = lua_gettop(l);
+    for(i=1;i<=len;i++) {
+        printf("[%d] ", i);
+        switch(lua_type(l, i)) {
+            case LUA_TNONE:
+                printf("none");
+            break;
+            case LUA_TNIL:
+                printf("nil");
+            break;
+            case LUA_TBOOLEAN:
+                printf("%s", lua_toboolean(l, i) ? "true" : "false");
+            break;
+            case LUA_TLIGHTUSERDATA:
+                printf("<lightuserdata>");
+            break;
+            case LUA_TNUMBER:
+                printf("%.1f", lua_tonumber(l, i));
+            break;
+            case LUA_TSTRING:
+                printf("\"%s\"", lua_tostring(l, i));
+            break;
+            case LUA_TTABLE:
+                printf("<table>");
+            break;
+            case LUA_TFUNCTION:
+                printf("<function>");
+            break;
+            case LUA_TUSERDATA:
+                printf("<userdata>");
+            break;
+            case LUA_TTHREAD:
+                printf("<thread>");
+            break;
+            default:
+                printf("?");
+            break;
+        }
+        printf("\n");
+    }
+}
+
 
 static void show_error(language_t*li, lua_State *l)
 {
@@ -144,6 +189,7 @@ static void define_constant_lua(struct _language*li, const char*name, value_t*va
 
     push_value(l, value);
     lua_setglobal(l, name);
+
 }
 
 static int lua_function_proxy(lua_State*l)
@@ -175,7 +221,6 @@ static void define_function_lua(struct _language*li, const char*name, function_t
     lua_State*l = lua->state;
     printf("[lua] defining function %s\n", name);
 
-    lua_pushstring(l, name);
     lua_pushlightuserdata(l, (void*)f);
     lua_pushcclosure(l, lua_function_proxy, 1);
     lua_setglobal(l, name);
@@ -186,9 +231,12 @@ static bool is_function_lua(language_t*li, const char*name)
     lua_internal_t*lua = (lua_internal_t*)li->internal;
     lua_State*l = lua->state;
 
+    printf("[lua] is_function(%s)\n", name);
+
     lua_getfield(l, LUA_GLOBALSINDEX, name);
-    bool ret = !lua_isnil(l, -1);
+    bool ret = lua_isfunction(l, -1);
     lua_pop(l, 1);
+
     return ret;
 }
 
@@ -196,21 +244,29 @@ static value_t* call_function_lua(language_t*li, const char*name, value_t*args)
 {
     lua_internal_t*lua = (lua_internal_t*)li->internal;
     lua_State*l = lua->state;
+
     lua_getfield(l, LUA_GLOBALSINDEX, name);
-    if(lua_isnil(l, -1)) {
+
+    if(!lua_isfunction(l, -1)) {
         language_error(li, "%s is not a function", name);
         return NULL;
+    }
+
+    int i;
+    for(i=0;i<args->length;i++) {
+        push_value(l, args->data[i]);
     }
 
     int error = lua_pcall(l, /*nargs*/args->length, /*nresults*/1, 0);
     if(error) {
         show_error(li, l);
-        language_error(li, "Couldn't run: %d\n", error);
+        language_error(li, "Couldn't call function %s: %d\n", name, error);
         return NULL;
     }
 
     value_t*ret = lua_to_value(l, -1);
     lua_pop(l, 1);
+
     return ret;
 }
 
