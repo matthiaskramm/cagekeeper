@@ -44,11 +44,15 @@ static value_t* pyobject_to_value(language_t*li, PyObject*o)
     } else if(PyList_Check(o)) {
         int i;
         int l = PyList_GET_SIZE(o);
+
         value_t*array = array_new();
         for(i=0;i<l;i++) {
-            PyObject*o = PyList_GET_ITEM(o, i);
-            array_append(array, pyobject_to_value(li, o));
+            PyObject*e = PyList_GetItem(o, i);
+            if(e == NULL)
+                return NULL;
+            array_append(array, pyobject_to_value(li, e));
         }
+        exit(0);
         return array;
     } else if(PyTuple_Check(o)) {
         int i;
@@ -56,6 +60,8 @@ static value_t* pyobject_to_value(language_t*li, PyObject*o)
         value_t*array = array_new();
         for(i=0;i<l;i++) {
             PyObject*e = PyTuple_GetItem(o, i);
+            if(e == NULL)
+                return NULL;
             array_append(array, pyobject_to_value(li, e));
         }
         return array;
