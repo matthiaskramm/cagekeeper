@@ -88,7 +88,7 @@ static void show_error(language_t*li, lua_State *l)
     }
 }
 
-bool init_lua(lua_internal_t*lua)
+static bool init_lua(lua_internal_t*lua)
 {
     lua_State*l = lua->state = lua_open();
     openlualibs(l);
@@ -134,7 +134,7 @@ static void push_value(lua_State*l, value_t*value)
         case TYPE_ARRAY: {
             lua_newtable(l);
             for(i=0;i<value->length;i++) {
-                lua_pushinteger(l, i);
+                lua_pushinteger(l, i+1);
                 push_value(l, value->data[i]);
                 lua_settable(l, -3);
             }
@@ -146,9 +146,13 @@ static void push_value(lua_State*l, value_t*value)
     }
 }
 
-static value_t* lua_to_value(lua_State*l, int idx)
+static value_t* lua_to_value(language_t*li, int idx)
 {
+    lua_internal_t*lua = (lua_internal_t*)li->internal;
+    lua_State*l = lua->state;
+
     if(lua_gettop(l)+idx < 0) {
+        language_error(li, "[lua] Stack overflow: idx=%d, top=%d\n", idx, lua_gettop(l));
         return NULL;
     } else if(lua_isnoneornil(l, idx)) {
         return value_new_void();
@@ -159,26 +163,24 @@ static value_t* lua_to_value(lua_State*l, int idx)
     } else if(lua_isnumber(l, idx)) {
         return value_new_int32(lua_tointeger(l, idx));
     } else if(lua_isstring(l, idx)) {
-        //return value_new_string(lua_tostring(l, idx));
-        //
         value_t*v = value_new_string(lua_tostring(l, idx));
         return v;
     } else if(lua_istable(l, idx)) {
-        char k[16];
         value_t*array = array_new();
         int i;
         for(i=0;;i++) {
-            sprintf(k, "%d", i);
-            lua_getfield(l, idx, k);
+            lua_pushinteger(l, i+1);
+            lua_gettable(l, idx<0?idx-1:idx);
             if(lua_isnil(l, -1)) {
                 lua_pop(l, 1);
                 break;
             }
-            array_append(array, lua_to_value(l, -1));
+            array_append(array, lua_to_value(li, -1));
             lua_pop(l, 1);
         }
         return array;
     }
+    language_error(li, "Don't know how to process lua type: %d\n");
     return NULL;
 }
 
@@ -192,16 +194,24 @@ static void define_constant_lua(struct _language*li, const char*name, value_t*va
 
 }
 
+typedef struct {
+    language_t*li;
+    value_t*f;
+    const char*name;
+} function_data_t;
+
 static int lua_function_proxy(lua_State*l)
 {
     assert(lua_islightuserdata(l, lua_upvalueindex(1)));
-    value_t*f = (value_t*)lua_touserdata(l, lua_upvalueindex(1));
+    function_data_t*data = (function_data_t*)lua_touserdata(l, lua_upvalueindex(1));
+    value_t*f = data->f;
     int i;
+    dbg("[lua] lua calls function %s (%d parameters)", data->name, f->num_params);
 
     value_t*args = array_new();
     int j = -f->num_params;
     for(i=0;i<f->num_params;i++) {
-        value_t*a = lua_to_value(l, j++);
+        value_t*a = lua_to_value(data->li, j++);
         if(a == NULL) {
             luaL_argerror(l, i+1, "invalid or missing value");
         }
@@ -219,9 +229,14 @@ static void define_function_lua(struct _language*li, const char*name, function_t
 {
     lua_internal_t*lua = (lua_internal_t*)li->internal;
     lua_State*l = lua->state;
-    printf("[lua] defining function %s\n", name);
+    printf("[lua] defining function %s (%d parameters)\n", name, f->num_params);
 
-    lua_pushlightuserdata(l, (void*)f);
+    function_data_t*data = calloc(sizeof(function_data_t),1);
+    data->f = f;
+    data->name = name;
+    data->li = li;
+
+    lua_pushlightuserdata(l, (void*)data);
     lua_pushcclosure(l, lua_function_proxy, 1);
     lua_setglobal(l, name);
 }
@@ -260,11 +275,11 @@ static value_t* call_function_lua(language_t*li, const char*name, value_t*args)
     int error = lua_pcall(l, /*nargs*/args->length, /*nresults*/1, 0);
     if(error) {
         show_error(li, l);
-        language_error(li, "Couldn't call function %s: %d\n", name, error);
+        language_error(li, "Error calling function %s: %d\n", name, error);
         return NULL;
     }
 
-    value_t*ret = lua_to_value(l, -1);
+    value_t*ret = lua_to_value(li, -1);
     lua_pop(l, 1);
 
     return ret;

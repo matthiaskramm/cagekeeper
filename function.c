@@ -26,14 +26,29 @@ int count_function_defs(c_function_def_t*methods)
     return i;
 }
 
+static int _parse_type(const char*s, type_t*type)
+{
+    const char*start = s;
+    switch(*s) {
+        case '\0': *type = TYPE_VOID; break;
+        case 'b': *type = TYPE_BOOLEAN; break;
+        case 'i': *type = TYPE_INT32; break;
+        case 'f': *type = TYPE_FLOAT32; break;
+        default:        
+        case 's': *type = TYPE_STRING; break;
+        case '[': *type = TYPE_ARRAY; break;
+    }
+    s++;
+    return s - start;
+}
+
 int function_count_args(c_function_def_t*method) 
 {
     const char*a;
     int count = 0;
     for(a=method->params; *a; a++) {
-        if(strchr("][", *a))
-            continue;
-        count++;
+        type_t type;
+        count += _parse_type(a, &type);
     }
     return count;
 }
@@ -65,7 +80,7 @@ const char* type_to_string(type_t type)
     }
 }
 
-static value_t* value_clone(const value_t*src)
+value_t* value_clone(const value_t*src)
 {
     switch(src->type) {
         case TYPE_VOID:
@@ -118,25 +133,6 @@ static ffi_type* _type_to_ffi_type(type_t type)
             assert(0);
         break;
     }
-}
-
-static int _parse_type(const char*s, type_t*type)
-{
-    const char*start = s;
-    switch(*s) {
-        case '\0': *type = TYPE_VOID; break;
-        case 'b': *type = TYPE_BOOLEAN; break;
-        case 'i': *type = TYPE_INT32; break;
-        case 'f': *type = TYPE_FLOAT32; break;
-        default:        
-        case 's': *type = TYPE_STRING; break;
-        case '[': *type = TYPE_ARRAY; break;
-    }
-    while(strchr("[]", *s)) {
-        s++;
-    }
-    s++;
-    return s - start;
 }
 
 ffi_type * function_ffi_rtype(c_function_def_t*method)
@@ -210,14 +206,6 @@ void function_signature_destroy(function_signature_t*sig)
     free(sig);
 }
 
-static value_t* function_signature_coerce_args(function_signature_t*sig, value_t*args)
-{
-    assert(args->type == TYPE_ARRAY);
-    assert(sig->num_params == args->length);
-    /* TODO: coerce args */
-    return value_clone(args);
-}
-
 static const char* _ffi_arg_type(const ffi_type*t)
 {
     if(t == &ffi_type_void)
@@ -275,60 +263,121 @@ value_t* cfunction_call(value_t*self, value_t*_args)
 
     if(status != FFI_OK) {
         fprintf(stderr, "ffi_prep_cif failed\n");
-        exit(1);
+        return NULL;
     }
 
 #ifdef DEBUG
     printf("[ffi] ");function_signature_dump(sig);
     printf("[ffi] args: ");value_dump(_args);printf("\n");
 #endif
-
-    value_t*args = function_signature_coerce_args(sig, _args);
-    if(args == NULL) {
-        return NULL;
-    }
-    void**ffi_args = malloc(sizeof(void*) * (args->length + 1));
-    int i;
-    ffi_args[0] = &f->context;
-    for(i=0;i<args->length;i++) {
-        switch(args->data[i]->type) {
-            case TYPE_FLOAT32:
-                ffi_args[i+1] = &args->data[i]->f32;
-            break;
-            case TYPE_INT32:
-                ffi_args[i+1] = &args->data[i]->i32;
-            break;
-            case TYPE_BOOLEAN:
-                ffi_args[i+1] = &args->data[i]->b;
-            break;
-            case TYPE_STRING:
-                ffi_args[i+1] = &args->data[i]->str;
-            break;
-            case TYPE_VOID:
-                ffi_args[i+1] = NULL;
-            break;
-            default:
-                fprintf(stderr, "Can't convert type %d\n", args->data[i]->type);
-                assert(0);
-            break;
-        }
-    }
-
     union {
         int32_t i32;
         float f32;
         bool b;
         void*ptr;
-    } ret_raw;
+    } args_data[_args->length+1], ret_raw;
+
+    void**ffi_args = alloca(sizeof(void*) * (_args->length + 1));
+
+    int i;
+
+    ffi_args[0] = &f->context;
+
+    for(i=0;i<_args->length;i++) {
+        value_t*o = _args->data[i];
+
+        ffi_type*t = atypes[i+1];
+        ffi_args[i+1] = &args_data[i+1];
+
+        bool error = false;
+        switch(_args->data[i]->type) {
+            case TYPE_FLOAT32: {
+                float v = o->f32;
+                if(t == &ffi_type_float) {
+                    args_data[i+1].f32 = v;
+                } else if(t == &ffi_type_sint32) {
+                    args_data[i+1].i32 = (int)v;
+                } else if(t == &ffi_type_uint8) {
+                    args_data[i+1].b = (int)v;
+                } else {
+                    error = true;
+                }
+            }
+            break;
+            case TYPE_INT32: {
+                int v = o->i32;
+                if(t == &ffi_type_float) {
+                    args_data[i+1].f32 = v;
+                } else if(t == &ffi_type_sint32) {
+                    args_data[i+1].i32 = v;
+                } else if(t == &ffi_type_uint8) {
+                    args_data[i+1].b = v;
+                } else {
+                    error = true;
+                }
+            }
+            break;
+            case TYPE_BOOLEAN: {
+                bool v = o->b;
+                if(t == &ffi_type_float) {
+                    args_data[i+1].f32 = v;
+                } else if(t == &ffi_type_sint32) {
+                    args_data[i+1].i32 = v;
+                } else if(t == &ffi_type_uint8) {
+                    args_data[i+1].b = v;
+                } else {
+                    error = true;
+                }
+            }
+            break;
+            case TYPE_STRING: {
+                char* v = o->str;
+                if(t == &ffi_type_pointer) {
+                    args_data[i+1].ptr = v;
+                } else {
+                    error = true;
+                }
+            }
+            break;
+            case TYPE_VOID: {
+                if(t == &ffi_type_void) {
+                    args_data[i+1].ptr = NULL;
+                } else {
+                    error = true;
+                }
+            }
+            break;
+            case TYPE_ARRAY: {
+                value_t* v = o;
+                if(t == &ffi_type_pointer) {
+                    args_data[i+1].ptr = v;
+                } else {
+                    error = true;
+                }
+            }
+            break;
+            default: {
+                error = true;
+            }
+            break;
+        }
+        if(error) {
+            fprintf(stderr, "Can't convert parameter %d from %s to %s\n",
+                    i+1, 
+                    type_to_string(_args->data[i]->type), 
+                    type_to_string(sig->param[i]));
+            function_signature_destroy(sig);
+            free(atypes);
+            return NULL;
+        }
+    }
 
 #ifdef DEBUG
     printf("[ffi] call: "); dump_ffi_call(&cif);
 #endif
     ffi_call(&cif, f->call, &ret_raw, ffi_args);
 
-    value_destroy(args);
     free(atypes);
-    free(ffi_args);
     type_t ret_type = sig->ret;
     
     value_t* ret = NULL;

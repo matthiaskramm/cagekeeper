@@ -18,9 +18,58 @@ static value_t* get_array(void*context, int width, int height)
     }
     return columns;
 }
+static int add2(void*context, int x, int y)
+{
+    return x+y;
+}
+static int add3(void*context, int x, int y, int z)
+{
+    return x+y+z;
+}
+static float fadd2(void*context, float x, float y)
+{
+    return x+y;
+}
+static float fadd3(void*context, float x, float y, float z)
+{
+    return x+y+z;
+}
+static char* concat_strings(void*context, char*s1, char*s2)
+{
+    int l1 = strlen(s1);
+    int l2 = strlen(s2);
+    char*tmp = malloc(l1+l2+1);
+    memcpy(tmp, s1, l1);
+    memcpy(tmp+l1, s2, l2);
+    tmp[l1+l2] = 0;
+    return tmp;
+}
+static value_t* concat_arrays(void*context, value_t*array1, value_t*array2)
+{
+    int i;
+    value_t*a = array_new();
+    for(i=0;i<array1->length;i++) {
+        array_append(a, value_clone(array1->data[i]));
+    }
+    for(i=0;i<array2->length;i++) {
+        array_append(a, value_clone(array2->data[i]));
+    }
+    return a;
+}
+static bool negate(void*context, bool b)
+{
+    return !b;
+}
 
 c_function_def_t functions[] = {
     {"get_array", (fptr_t)get_array, NULL, "ii","["},
+    {"add2", (fptr_t)add2, NULL, "ii", "i"},
+    {"add3", (fptr_t)add3, NULL, "iii", "i"},
+    {"fadd2", (fptr_t)fadd2, NULL, "ff", "f"},
+    {"fadd3", (fptr_t)fadd3, NULL, "fff", "f"},
+    {"concat_strings", (fptr_t)concat_strings, NULL, "ss", "s"},
+    {"concat_arrays", (fptr_t)concat_arrays, NULL, "[[", "["},
+    {"negate", (fptr_t)negate, NULL, "b", "b"},
     {NULL,NULL,NULL,NULL}
 };
 

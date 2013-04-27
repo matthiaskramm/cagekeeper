@@ -49,6 +49,7 @@ value_t* value_new_int32(int32_t i32);
 value_t* value_new_cfunction(fptr_t call, void*context, char*args, char*ret);
 value_t* value_new_array();
 
+value_t* value_clone(const value_t*src);
 void value_dump(value_t*v);
 void value_destroy(value_t*v);
 
