@@ -77,6 +77,6 @@ clean:
 	rm -f *.so *.o testpython ptmalloc/*.o
 
 test:
-	spec/run -u spec/param.lua
+	spec/run -u spec/globals.lua
 
 .PHONY: all clean

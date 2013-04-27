@@ -289,6 +289,7 @@ language_t* lua_interpreter_new()
     li->is_function = is_function_lua;
     li->call_function = call_function_lua;
     li->define_function = define_function_lua;
+    li->define_constant = define_constant_lua;
     li->destroy = destroy_lua;
     li->internal = calloc(1, sizeof(lua_internal_t));
     lua_internal_t*lua = (lua_internal_t*)li->internal;

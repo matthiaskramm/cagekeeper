@@ -65,6 +65,11 @@ int main(int argn, char*argv[])
     }
 
     define_c_functions(l, functions);
+    l->define_constant(l, "global_int", value_new_int32(3));
+    l->define_constant(l, "global_array", value_new_array());
+    l->define_constant(l, "global_boolean", value_new_boolean(true));
+    l->define_constant(l, "global_float", value_new_float32(3.0));
+    l->define_constant(l, "global_string", value_new_string("foobar"));
 
     char* script = read_file(filename);
     if(!script) {
@@ -123,7 +128,7 @@ int main(int argn, char*argv[])
         value_t*args = value_new_array();
         array_append(args, value_new_int32(1));
         array_append(args, value_new_float32(2));
-        array_append(args, value_new_string("ok"));
+        array_append(args, value_new_string("foobar"));
         ret = l->call_function(l, "call_int_and_float_and_string", args);
         value_destroy(args);
     }
