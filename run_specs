@@ -22,18 +22,25 @@
 
 import sys
 import os
+import re
 import time
 import subprocess
 import marshal
 import select
 from optparse import OptionParser
 
-CMD_ARGS=[]
+class Command:
+    def __init__(self, cmd, args):
+        self.cmd = cmd
+        self.args = args
 
-CMD = "spec/run"
-CMD_ARGS=["-u"]
+cmd_run_unsafe = Command("spec/run", ["-u"])
+cmd_run_sandbox = Command("spec/run", [])
+cmds = [cmd_run_unsafe, cmd_run_sandbox]
 
 EXTENSIONS=[".py", ".rb", ".js", ".lua"]
+
+NON_PRINTABLE = re.compile("((?=[\x00-\x1f])[^\n\r\t])|[\x7f-\xff]")
 
 def check(s):
     row = None
@@ -70,7 +77,7 @@ def check(s):
         return 0 not in row
     return 0
 
-def runcmd(cmd,args,wait):
+def runcmd(cmd, args, wait):
     #fo = os.tmpfile()
     fi,fo = os.pipe()
     fo = os.fdopen(fo, "wb")
@@ -102,7 +109,22 @@ def runcmd(cmd,args,wait):
         output += os.read(fi, 8192)
 
     os.close(fi)
-    return ret,output
+    return CommandResult(ret, output)
+
+class CommandResult:
+    def __init__(self, ret, output):
+        self.ret = ret
+        self.output = output
+        self.compile_error = 0
+        self.compile_output = output
+        self.exit_status = 0
+        if ret:
+            self.compile_output += "\nExit status %d" % (-ret)
+            self.exit_status = -ret
+            self.compile_error = 1
+            self.success = False
+        else:
+            self.success = True
 
 class Cache:
     def __init__(self, filename):
@@ -194,41 +216,35 @@ class TestBase:
         self.file = file
         self.compile_output = None
         self.compile_error = None
+        self.status = []
 
-    def compile(self):
-        try: os.unlink("abc.swf");
-        except: pass
-        ret,output = runcmd(CMD,CMD_ARGS+[self.file],wait=cache.runtime)
-        self.compile_error = 0
-        self.compile_output = output
-        self.exit_status = 0
-        if ret:
-            self.compile_output += "\nExit status %d" % (-ret)
-            self.exit_status = -ret
-            self.compile_error = 1
-            return False
-        return True
+    def compile(self, cmd):
+        command_status = runcmd(cmd.cmd, cmd.args+[self.file], wait=cache.runtime)
+        self.status.append(command_status)
+        return command_status.success
 
     def doprint(self):
         print self.r(str(self.nr),3)," ",
-        if self.compile_error:
-            if self.dorun:
-                if self.exit_status == 11:
-                    print "crash",
-                else:
-                    print "err  ",
+        for status in self.status:
+            if status.exit_status == 11:
+                print "crash",
+            elif status.exit_status == 9:
+                print "deny ",
+            elif not status.success:
+                print "err%2d" % -status.exit_status,
             else:
-                print "err  ",
-        else:
-            print "ok   ",
+                print "ok   ",
+        for _ in range(len(self.status), len(cmds)):
+            print " -  ",
         print " ",
         print self.file
 
     def doprintlong(self):
         print self.nr, self.file
         print "================================"
-        print "compile:", (self.compile_error and "error" or "ok")
-        print self.compile_output
+        status = self.status[-1]
+        print "compile:", (status.compile_error and "error" or "ok")
+        print NON_PRINTABLE.sub("?", status.compile_output)
 
     def r(self,s,l):
         if(len(s)>=l):
@@ -242,7 +258,12 @@ class TestBase:
 class Test(TestBase):
     def __init__(self, cache, nr, file):
         TestBase.__init__(self, cache, nr, file, run=1)
-        if self.compile():
+        ok = True
+        for cmd in cmds:
+            if not self.compile(cmd):
+                ok = False
+                break
+        if ok:
             cache.file_status(file, "ok")
         else:
             cache.file_status(file, "error")
@@ -250,7 +271,12 @@ class Test(TestBase):
 class ErrTest(TestBase):
     def __init__(self, cache, nr, file):
         TestBase.__init__(self, cache, nr, file, run=0)
-        if self.compile():
+        ok = True
+        for cmd in cmds:
+            if not self.compile(cmd):
+                ok = False
+                break
+        if ok:
             cache.file_status(file, "error")
             self.compile_error = True
         else:
