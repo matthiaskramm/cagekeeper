@@ -182,6 +182,7 @@ static void define_function_proxy(language_t*li, const char*name, function_t*f)
     /* let the child know that we're accepting callbacks for this function name */
     write_byte(proxy->fd_w, DEFINE_FUNCTION);
     write_string(proxy->fd_w, name);
+    write_byte(proxy->fd_w, f->num_params);
 
     if(dict_contains(proxy->callback_functions, name)) {
         language_error(li, "function %s already defined", name);
@@ -348,7 +349,10 @@ static void child_loop(language_t*li)
             break;
             case DEFINE_FUNCTION: {
                 char*name = read_string(r, NULL);
-                dbg("[sandbox] define function(%s)", name);
+                uint8_t num_params = 0;
+                read_with_retry(r, &num_params, 1);
+
+                dbg("[sandbox] define function(%s), %d parameters", name, num_params);
 
                 proxy_function_t*pf = calloc(sizeof(proxy_function_t), 1);
                 pf->li = li;
@@ -359,6 +363,7 @@ static void child_loop(language_t*li)
                 value->internal = pf;
                 value->destroy = proxy_function_destroy;
                 value->call = proxy_function_call;
+                value->num_params = num_params;
 
                 free(name);
             }

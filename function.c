@@ -20,7 +20,7 @@ typedef struct {
 int count_function_defs(c_function_def_t*methods) 
 {
     int i = 0;
-    while(methods[i].name) {
+    while(methods[i].call) {
         i++;
     }
     return i;
@@ -313,7 +313,6 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             break;
         }
     }
-    value_destroy(args);
 
     union {
         int32_t i32;
@@ -327,6 +326,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
 #endif
     ffi_call(&cif, f->call, &ret_raw, ffi_args);
 
+    value_destroy(args);
     free(atypes);
     free(ffi_args);
     type_t ret_type = sig->ret;
@@ -362,7 +362,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
 void value_dump(value_t*v)
 {
     if(v == NULL) {
-        printf("null value (error)");
+        printf("NULL value (error)");
         return;
     }
 
@@ -551,6 +551,7 @@ value_t* value_new_cfunction(void (*call)(), void*context, char*params, char*ret
     v->type = TYPE_FUNCTION;
     v->internal = f;
     v->call = cfunction_call;
+    v->num_params = function_count_args(f);
     return v;
 }
 

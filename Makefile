@@ -1,4 +1,4 @@
-all: spec/run testpython 
+all: spec/run testlua 
 
 PTMALLOC_CFLAGS=-DUSE_DL_PREFIX -DONLY_MSPACES -DMSPACES -DHAVE_MMAP=0 -DHAVE_REMAP=0 -DHAVE_MORECORE=1 -DMORECORE=sandbox_sbrk -DNO_MALLINFO=1
 LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi)
@@ -24,13 +24,16 @@ LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) -lz
 
 RUBY_LDFLAGS=-L/usr/lib -Wl,-R/usr/lib -L. -Wl,-O1 -rdynamic -Wl,-export-dynamic -L.. -Wl,-R -Wl,/usr/lib -L/usr/lib -lruby18 -lz -ldl -lcrypt -lm -lc
 
-OBJECTS=function.o dict.o language_js.o language_py.o language_proxy.o language.o util.o seccomp.o mem.o ptmalloc/malloc.o
+OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_proxy.o language.o util.o seccomp.o mem.o ptmalloc/malloc.o
 
 spec/run: spec/run.o $(OBJECTS)
 	$(CC) spec/run.o $(OBJECTS) $(LIBS) -o $@
 
 testpython: testpython.o $(OBJECTS)
 	$(CC) testpython.o $(OBJECTS) $(LIBS) -o $@
+
+testlua: testlua.o $(OBJECTS)
+	$(CC) testlua.o $(OBJECTS) $(LIBS) -o $@
 
 ptmalloc/malloc.o: ptmalloc/malloc.c ptmalloc/malloc-2.8.3.h
 	$(CC) -c $(PTMALLOC_CFLAGS) -Iptmalloc ptmalloc/malloc.c -o $@

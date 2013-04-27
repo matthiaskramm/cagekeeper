@@ -27,7 +27,10 @@ struct _value {
         float f32;
         bool b;
         char* str;
-        value_t* (*call)(value_t*v, value_t*params);
+        struct {
+            value_t* (*call)(value_t*v, value_t*params);
+            int num_params;
+        };
         struct {
             int length;
             struct _value**data;

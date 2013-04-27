@@ -11,6 +11,7 @@
 typedef struct _lua_internal {
     language_t*li;
     lua_State* state;
+    int method_count;
 } lua_internal_t;
 
 static const luaL_reg lualibs[] =
@@ -35,10 +36,8 @@ static void openlualibs(lua_State *l)
 static void show_error(language_t*li, lua_State *l)
 {
     const char *s = lua_tolstring(l, -1, NULL);
+    printf("%s\n", s);
 
-    if(li->verbosity > 0) {
-        printf("%s\n", s);
-    }
     if(li->error_file) {
         fprintf(li->error_file, "%s\n", s);
     }
@@ -67,6 +66,121 @@ static bool compile_script_lua(language_t*li, const char*script)
     return true;
 }
 
+static void push_value(lua_State*l, value_t*value)
+{
+    int i;
+    switch(value->type) {
+        case TYPE_VOID:
+            lua_pushnil(l);
+        break;
+        case TYPE_FLOAT32:
+            lua_pushnumber(l, value->f32);
+        break;
+        case TYPE_INT32:
+            lua_pushinteger(l, value->i32);
+        break;
+        case TYPE_BOOLEAN:
+            lua_pushboolean(l, value->b);
+        break;
+        case TYPE_STRING: {
+            lua_pushstring(l, value->str);
+        }
+        break;
+        case TYPE_ARRAY: {
+            lua_newtable(l);
+            for(i=0;i<value->length;i++) {
+                lua_pushinteger(l, i);
+                push_value(l, value->data[i]);
+                lua_settable(l, -3);
+            }
+        }
+        break;
+        default: {
+            lua_pushnil(l);
+        }
+    }
+}
+
+static value_t* lua_to_value(lua_State*l, int idx)
+{
+    if(lua_gettop(l)+idx < 0) {
+        return NULL;
+    } else if(lua_isnoneornil(l, idx)) {
+        return value_new_void();
+    } else if(lua_isboolean(l, idx)) {
+        return value_new_boolean(lua_toboolean(l, idx));
+    } else if(lua_isnumber(l, idx)) {
+        return value_new_float32(lua_tonumber(l, idx));
+    } else if(lua_isnumber(l, idx)) {
+        return value_new_int32(lua_tointeger(l, idx));
+    } else if(lua_isstring(l, idx)) {
+        //return value_new_string(lua_tostring(l, idx));
+        //
+        value_t*v = value_new_string(lua_tostring(l, idx));
+        return v;
+    } else if(lua_istable(l, idx)) {
+        char k[16];
+        value_t*array = array_new();
+        int i;
+        for(i=0;;i++) {
+            sprintf(k, "%d", i);
+            lua_getfield(l, idx, k);
+            if(lua_isnil(l, -1)) {
+                lua_pop(l, 1);
+                break;
+            }
+            array_append(array, lua_to_value(l, -1));
+            lua_pop(l, 1);
+        }
+        return array;
+    }
+    return NULL;
+}
+
+static void define_constant_lua(struct _language*li, const char*name, value_t*value)
+{
+    lua_internal_t*lua = (lua_internal_t*)li->internal;
+    lua_State*l = lua->state;
+
+    push_value(l, value);
+    lua_setglobal(l, name);
+}
+
+static int lua_function_proxy(lua_State*l)
+{
+    assert(lua_islightuserdata(l, lua_upvalueindex(1)));
+    value_t*f = (value_t*)lua_touserdata(l, lua_upvalueindex(1));
+    int i;
+
+    value_t*args = array_new();
+    int j = -f->num_params;
+    for(i=0;i<f->num_params;i++) {
+        value_t*a = lua_to_value(l, j++);
+        if(a == NULL) {
+            luaL_argerror(l, i+1, "invalid or missing value");
+        }
+        array_append(args, a);
+    }
+    value_t*ret = f->call(f, args);
+    value_destroy(args);
+
+    push_value(l, ret);
+    value_destroy(ret);
+    return 1;
+}
+
+static void define_function_lua(struct _language*li, const char*name, function_t*f)
+{
+    lua_internal_t*lua = (lua_internal_t*)li->internal;
+    lua_State*l = lua->state;
+    printf("[lua] defining function %s\n", name);
+
+    lua_pushstring(l, name);
+    lua_pushlightuserdata(l, (void*)f);
+    lua_pushcclosure(l, lua_function_proxy, 1);
+    lua_setglobal(l, name);
+}
+
 static bool is_function_lua(language_t*li, const char*name)
 {
     lua_internal_t*lua = (lua_internal_t*)li->internal;
@@ -76,23 +190,6 @@ static bool is_function_lua(language_t*li, const char*name)
     bool ret = !lua_isnil(l, -1);
     lua_pop(l, 1);
     return ret;
-}
-
-static value_t* lua_to_value(lua_State*l)
-    if(lua_isnoneornil(l, -1)) {
-        return value_new_void();
-    } else if(lua_isboolean(l, -1)) {
-        return value_new_boolean(lua_toboolean(l, -1));
-    } else if(lua_isnumber(l, -1)) {
-        return value_new_float32(lua_tonumber(l, -1));
-    } else if(lua_isnumber(l, -1)) {
-        return value_new_int32(lua_tointeger(l, -1));
-    } else if(lua_isstring(l, -1)) {
-        return value_new_string(lua_tostring(l, -1));
-    } else if(lua_istable(l, -1)) {
-        /* FIXME */
-    }
-    return NULL;
 }
 
 static value_t* call_function_lua(language_t*li, const char*name, value_t*args)
@@ -112,7 +209,7 @@ static value_t* call_function_lua(language_t*li, const char*name, value_t*args)
         return NULL;
     }
 
-    value_t*ret = lua_to_value(l);
+    value_t*ret = lua_to_value(l, -1);
     lua_pop(l, 1);
     return ret;
 }
@@ -135,6 +232,7 @@ language_t* lua_interpreter_new()
     li->compile_script = compile_script_lua;
     li->is_function = is_function_lua;
     li->call_function = call_function_lua;
+    li->define_function = define_function_lua;
     li->destroy = destroy_lua;
     li->internal = calloc(1, sizeof(lua_internal_t));
     lua_internal_t*lua = (lua_internal_t*)li->internal;
