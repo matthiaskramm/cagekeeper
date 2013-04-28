@@ -27,8 +27,9 @@ CXX=$(CC)
 LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) $(RUBY_LIBS)
 
 OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_rb.o language_proxy.o language.o util.o seccomp.o mem.o ptmalloc/malloc.o
+INCLUDES=function.h dict.h language.h
 
-spec/run: spec/run.o $(OBJECTS)
+spec/run: spec/run.o $(INCLUDES) $(OBJECTS)
 	$(CC) spec/run.o $(OBJECTS) $(LIBS) -o $@
 
 testpython: testpython.o $(OBJECTS)
@@ -86,7 +87,7 @@ libcagekeeper.a: $(OBJECTS)
 	ranlib $@
 
 clean:
-	rm -f *.so *.o testpython ptmalloc/*.o
+	rm -f *.so *.o testpython ptmalloc/*.o spec/run spec/run.o
 
 test:
 	./run_specs -a
