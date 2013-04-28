@@ -47,6 +47,9 @@ static char* dbg(const char*format, ...)
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
     dbg("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, ebx, ecx, edx, esi, edi);
+    if(eax == __NR_open) {
+        dbg("\topen: %s\n", (char*)ebx);
+    }
 }
 
 static void (*syscall_log)() = _syscall_log;
@@ -88,6 +91,8 @@ void _dummy(void) {
         "cmp $270, %%eax\n" // tgkill
         "je refuse\n"
         "cmp $174, %%eax\n" // rt_sigaction
+        "je refuse\n"
+        "cmp $5, %%eax\n " // open
         "je refuse\n"
         "jmp forward\n"
 "refuse:\n"
