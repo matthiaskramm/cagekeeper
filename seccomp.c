@@ -10,6 +10,8 @@
 #include <asm/unistd_32.h>
 
 #define HIJACK_SYSCALLS
+#define LOG_SYSCALLS
+#define REFUSE_UNSUPPORTED
 
 #ifdef HIJACK_SYSCALLS
 static ssize_t my_write(int handle, void*data, int length) {
@@ -50,46 +52,64 @@ static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
 static void (*syscall_log)() = _syscall_log;
 static int *errno_location;
 
-static void do_syscall(void) {
+void do_syscall();
+
+void _dummy(void) {
     asm(
-        "movl (%%ebp), %%ebp\n" // ignore the gcc prologue
+"do_syscall:\n"
+        //"movl (%%ebp), %%ebp\n" // ignore the gcc prologue
 #ifdef LOG_SYSCALLS
         /* log system call */    
+	"pushl %%ebp\n"
 	"pushl %%eax\n"
 	"pushl %%ebx\n"
 	"pushl %%ecx\n"
 	"pushl %%edx\n"
 	"pushl %%esi\n"
 	"pushl %%edi\n"
-        "call *%0\n"
+        "call _syscall_log\n"
 	"popl %%edi\n"
 	"popl %%esi\n"
 	"popl %%edx\n"
 	"popl %%ecx\n"
 	"popl %%ebx\n"
 	"popl %%eax\n"
+	"popl %%ebp\n"
 #endif
 
+#ifdef REFUSE_UNSUPPORTED
         /* consult blacklist */
         "cmp $197, %%eax\n" // fstat64
         "je refuse\n"
         "cmp $192, %%eax\n" // mmap2
         "je refuse\n"
+        "cmp $175, %%eax\n" // rt_sigprocmask
+        "je refuse\n"
+        "cmp $270, %%eax\n" // tgkill
+        "je refuse\n"
+        "cmp $174, %%eax\n" // rt_sigaction
+        "je refuse\n"
         "jmp forward\n"
-        "refuse:\n"
+"refuse:\n"
+
+#ifdef SET_ERRNO
         "push %%ebx\n"
         "mov $12, %%eax\n" // ENOMEM
         "mov %1, %%ebx\n"  // errno_location
         "mov %%eax, (%%ebx)\n"
-        "mov $-1, %%eax\n" // return value
         "pop %%ebx\n"
+#endif
+        "mov $-1, %%eax\n" // return value
         "jmp exit\n"
-        "forward:\n"
+
+"forward:\n"
+#endif
 
         /* make the syscall */
         "int $0x080\n"
 
-        "exit:\n"
+"exit:\n"
+        "ret\n"
         : 
 	: "m" (syscall_log),
 	  "m" (errno_location)
@@ -103,7 +123,7 @@ static void hijack_linux_gate(void) {
     asm("mov %%gs:0x10, %%eax\n"
         "mov %%eax, %0\n"
 
-        "mov %1, %%eax\n"
+        "mov $do_syscall, %%eax\n"
         "mov %%eax, %%gs:0x10\n"
 
         : "=m" (old_syscall_handler)
@@ -126,7 +146,6 @@ void seccomp_lockdown(int max_memory)
 #endif
 
     int ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
-
     if(ret) {
         fprintf(stderr, "could not enter secure computation mode\n");
         perror("prctl");
