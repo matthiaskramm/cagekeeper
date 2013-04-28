@@ -1,4 +1,4 @@
-all: spec/run testlua testruby testpython
+all: spec/run testlua testruby testpython testjs libcagekeeper.a
 
 PTMALLOC_CFLAGS=-DUSE_DL_PREFIX -DONLY_MSPACES -DMSPACES -DHAVE_MMAP=0 -DHAVE_REMAP=0 -DHAVE_MORECORE=1 -DMORECORE=sandbox_sbrk -DNO_MALLINFO=1
 LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi)
@@ -21,7 +21,8 @@ MEMWRAP=-Wl,--wrap=malloc \
 	-Wl,--wrap=strdup \
 	-Wl,--wrap=valloc
 
-CC=gcc -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(MEMWRAP) $(LIBFFI_CFLAGS)
+CC=gcc -g -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(MEMWRAP) $(LIBFFI_CFLAGS)
+CXX=$(CC)
 
 LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) $(RUBY_LIBS)
 
@@ -38,6 +39,9 @@ testlua: testlua.o $(OBJECTS)
 
 testruby: testruby.o $(OBJECTS)
 	$(CC) testruby.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
+
+testjs: testjs.o $(OBJECTS)
+	$(CC) testjs.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
 
 ptmalloc/malloc.o: ptmalloc/malloc.c ptmalloc/malloc-2.8.3.h
 	$(CC) -c $(PTMALLOC_CFLAGS) -Iptmalloc ptmalloc/malloc.c -o $@
@@ -76,6 +80,10 @@ language_rb.o: language_rb.c language.h
 
 language_lua.o: language_lua.c language.h
 	$(CC) -c language_lua.c
+
+libcagekeeper.a: $(OBJECTS)
+	ar cru $@ $(OBJECTS)
+	ranlib $@
 
 clean:
 	rm -f *.so *.o testpython ptmalloc/*.o
