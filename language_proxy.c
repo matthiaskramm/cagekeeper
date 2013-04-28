@@ -196,17 +196,18 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
-    char resp = 0;
-    if(!read_with_timeout(proxy->fd_r, &resp, 1, timeout)) {
-        return false;
-    }
- 
     while(1) {
+        char resp = 0;
+        if(!read_with_timeout(proxy->fd_r, &resp, 1, timeout)) {
+            return false;
+        }
+
         switch(resp) {
             case RESP_CALLBACK: {
                 char*name = read_string(proxy->fd_r, timeout);
-                if(!name)
+                if(!name) {
                     return false;
+                }
                 value_t*args = read_value(proxy->fd_r, timeout);
                 if(!args) {
                     free(name);
@@ -214,6 +215,7 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
                 }
                 value_t*function = dict_lookup(proxy->callback_functions, name);
                 if(!function) {
+                    language_error(li, "Calling unknown callback function\n");
                     value_destroy(args);
                     free(name);
                     return false;
@@ -315,6 +317,7 @@ static void proxy_function_destroy(value_t*v)
 static value_t* proxy_function_call(value_t*v, value_t*args)
 {
     proxy_function_t*f = (proxy_function_t*)v->internal; 
+    dbg("[sandbox] invoking callback %s", f->name);
     language_t*li = f->li;
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
@@ -366,6 +369,8 @@ static void child_loop(language_t*li)
                 value->destroy = proxy_function_destroy;
                 value->call = proxy_function_call;
                 value->num_params = num_params;
+
+                old->define_function(old, name, value);
             }
             break;
             case COMPILE_SCRIPT: {
@@ -510,7 +515,7 @@ language_t* proxy_new(language_t*old, int max_memory)
         return NULL;
     }
 
-    proxy->callback_functions = dict_new(&ptr_type);
+    proxy->callback_functions = dict_new(&charptr_type);
 
     return li;
 }
