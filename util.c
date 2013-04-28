@@ -9,13 +9,14 @@
 #include <errno.h>
 #include "util.h"
 
-char* dbg(const char*format, ...)
+char* dbg_printf(const char*format, ...)
 {
     va_list arglist;
     va_start(arglist, format);
     vfprintf(stdout, format, arglist);
     printf("\n");
     va_end(arglist);
+    fflush(stdout);
 }
 
 void*memdup(const void*ptr, size_t size)

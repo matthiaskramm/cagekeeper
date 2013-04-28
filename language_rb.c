@@ -5,6 +5,7 @@
 #include "dict.h"
 
 typedef struct _rb_internal {
+    language_t*li;
     VALUE object;
     dict_t*functions;
 } rb_internal_t;
@@ -147,11 +148,14 @@ static VALUE ruby_function_proxy(VALUE self, VALUE _args)
     ID id = rb_frame_last_func();
 
     value_t* value = dict_lookup(global->functions, (void*)id);
-    if(!value)
+
+    if(!value) {
+        language_error(global->li, "[ruby] couldn't retrieve constant %s", rb_id2name(id));
         return Qnil;
+    }
 
     if(value->type == TYPE_FUNCTION) {
-        printf("calling function %s\n", rb_id2name(id));
+        dbg("[ruby] calling function %s", rb_id2name(id));
         value_t*args = ruby_to_value(_args);
         value_t*ret = value->call(value, args);
         value_destroy(args);
@@ -159,6 +163,7 @@ static VALUE ruby_function_proxy(VALUE self, VALUE _args)
         value_destroy(ret);
         return r;
     } else {
+        dbg("[ruby] retrieving constant %s (%s)", rb_id2name(id), type_to_string(value->type));
         volatile VALUE r = value_to_ruby(value);
         return r;
     }
@@ -168,7 +173,7 @@ static VALUE ruby_function_proxy(VALUE self, VALUE _args)
 static void define_constant_rb(language_t*li, const char*name, value_t*value)
 {
     rb_internal_t*rb = (rb_internal_t*)li->internal;
-    dbg("[ruby] define function %s", name);
+    dbg("[ruby] define constant %s", name);
     rb_define_global_function(name, ruby_function_proxy, -2);
 
     ID id = rb_intern(name);
@@ -266,6 +271,7 @@ language_t* ruby_interpreter_new()
     li->destroy = destroy_rb;
     li->internal = calloc(1, sizeof(rb_internal_t));
     rb_internal_t*rb = (rb_internal_t*)li->internal;
+    rb->li = li;
     init_rb(rb);
     return li;
 }

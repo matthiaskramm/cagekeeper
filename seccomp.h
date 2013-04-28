@@ -1,4 +1,8 @@
 #ifndef __seccomp_h__
 #define __seccomp_h__
-void seccomp_lockdown(int max_memory);
+
+/* logging function, writes directly to fd 1 using a system call */
+char* dbg(const char*format, ...);
+
+void seccomp_lockdown();
 #endif

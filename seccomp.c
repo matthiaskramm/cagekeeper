@@ -8,6 +8,8 @@
 #include <sys/prctl.h>
 #include <sys/signal.h>
 #include <asm/unistd_32.h>
+#define __USE_GNU
+#include <dlfcn.h>
 
 #define HIJACK_SYSCALLS
 #define LOG_SYSCALLS
@@ -34,7 +36,7 @@ static ssize_t my_write(int handle, void*data, int length) {
     return ret;
 }
 
-static char* dbg(const char*format, ...)
+char* dbg(const char*format, ...)
 {
     static char buffer[256];
     va_list arglist;
@@ -42,6 +44,8 @@ static char* dbg(const char*format, ...)
     int length = vsnprintf(buffer, sizeof(buffer), format, arglist);
     va_end(arglist);
     my_write(1, buffer, length);
+    if(length && buffer[length-1] != '\n')
+        my_write(1, "\n", 1);
 }
 
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
@@ -141,9 +145,31 @@ static void hijack_linux_gate(void) {
 #define SECCOMP_MODE_STRICT 1
 #endif
 
-void seccomp_lockdown(int max_memory)
+static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
-    init_mem_wrapper(max_memory);
+    Dl_info info; 
+    dbg("signal %d, at %p\n", signal, info.dli_saddr);
+    void*here;
+    void**stack_top = &here;
+    int i = 0;
+    for(i=0;i<256;i++) {
+        if(dladdr(*stack_top, &info) && info.dli_saddr && info.dli_sname) {
+            dbg("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
+        }
+        stack_top++;
+    }
+
+    _exit(signal);
+}
+
+static struct sigaction sig;
+
+void seccomp_lockdown()
+{
+    sig.sa_sigaction = handle_signal;
+    sig.sa_flags = SA_SIGINFO;
+    sigaction(11, &sig, NULL);
+    sigaction(6, &sig, NULL);
 
 #ifdef HIJACK_SYSCALLS
     errno_location = __errno_location();
