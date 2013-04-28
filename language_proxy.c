@@ -334,8 +334,11 @@ static void child_loop(language_t*li)
 
     while(1) {
         char command;
-        if(!read_with_retry(r, &command, 1))
+        dbg("[sandbox] reading next command");
+        if(!read_with_retry(r, &command, 1)) {
+            dbg("[sandbox] Couldn't read command");
             _exit(1);
+        }
 
         dbg("[sandbox] command=%d", command);
         switch(command) {
@@ -344,7 +347,6 @@ static void child_loop(language_t*li)
                 dbg("[sandbox] define constant(%s)", s);
                 value_t*v = read_value(r, NULL);
                 old->define_constant(old, s, v);
-                value_destroy(v);
             }
             break;
             case DEFINE_FUNCTION: {
@@ -356,7 +358,7 @@ static void child_loop(language_t*li)
 
                 proxy_function_t*pf = calloc(sizeof(proxy_function_t), 1);
                 pf->li = li;
-                pf->name = strdup(name);
+                pf->name = name;
 
                 value_t*value = calloc(sizeof(value_t), 1);
                 value->type = TYPE_FUNCTION;
@@ -364,8 +366,6 @@ static void child_loop(language_t*li)
                 value->destroy = proxy_function_destroy;
                 value->call = proxy_function_call;
                 value->num_params = num_params;
-
-                free(name);
             }
             break;
             case COMPILE_SCRIPT: {
@@ -393,6 +393,7 @@ static void child_loop(language_t*li)
                 dbg("[sandbox] returning function value (%s)", type_to_string(ret->type));
                 write_byte(w, RESP_RETURN);
                 write_value(w, ret);
+
                 free(function_name);
                 value_destroy(args);
                 value_destroy(ret);
