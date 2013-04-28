@@ -14,6 +14,6 @@ def test():
 
     assert(negate(True) == False)
     assert(negate(False) == True)
-    assert(type(negate(true)) == bool)
+    assert(type(negate(True)) == bool)
 
     return "ok"

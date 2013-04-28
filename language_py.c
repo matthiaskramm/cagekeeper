@@ -52,7 +52,6 @@ static value_t* pyobject_to_value(language_t*li, PyObject*o)
                 return NULL;
             array_append(array, pyobject_to_value(li, e));
         }
-        exit(0);
         return array;
     } else if(PyTuple_Check(o)) {
         int i;
@@ -125,7 +124,7 @@ static PyObject* python_method_proxy(PyObject* _self, PyObject* _args)
     FunctionProxyObject* self = (FunctionProxyObject*)_self;
 
 #ifdef DEBUG
-    printf("[python] %s", self->name);
+    printf("[python] call external %s", self->name);
     _args->ob_type->tp_print(_args, stdout, 0);
     printf("\n");
 #endif
