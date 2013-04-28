@@ -17,7 +17,6 @@ static bool init_rb(rb_internal_t*rb)
 {
     if(rb_reference_count==0) {
         ruby_init();
-        rb->functions = dict_new(&ptr_type);
         global = rb;
     }
     rb_reference_count++;
@@ -170,14 +169,21 @@ static VALUE ruby_function_proxy(VALUE self, VALUE _args)
     return Qnil;
 }
 
+static void store_function(const char*name, value_t*value)
+{
+    ID id = rb_intern(name);
+    if(!global->functions) {
+        global->functions = dict_new(&ptr_type);
+    }
+    dict_put(global->functions, (void*)id, value);
+}
+
 static void define_constant_rb(language_t*li, const char*name, value_t*value)
 {
     rb_internal_t*rb = (rb_internal_t*)li->internal;
     dbg("[ruby] define constant %s", name);
     rb_define_global_function(name, ruby_function_proxy, -2);
-
-    ID id = rb_intern(name);
-    dict_put(global->functions, (void*)id, value);
+    store_function(name, value);
 }
 
 static void define_function_rb(language_t*li, const char*name, function_t*f)
@@ -185,9 +191,7 @@ static void define_function_rb(language_t*li, const char*name, function_t*f)
     rb_internal_t*rb = (rb_internal_t*)li->internal;
     dbg("[ruby] define function %s", name);
     rb_define_global_function(name, ruby_function_proxy, -2);
-
-    ID id = rb_intern(name);
-    dict_put(global->functions, (void*)id, f);
+    store_function(name, f);
 }
 
 static bool is_function_rb(language_t*li, const char*name)

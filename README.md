@@ -1,7 +1,7 @@
 About:
 ------
 
-This is a secure sandbox for (so far) Python and Javascript programs.
+This is a secure sandbox for (so far) Python, Javascript, Ruby and Lua.
 
 It's aimed at online programming challenges, homework assignments etc.
 
