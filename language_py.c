@@ -311,9 +311,6 @@ static void destroy_py(language_t* li)
 language_t* python_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
-#ifdef DEBUG
-    li->magic = LANG_MAGIC;
-#endif
     li->name = "py";
     li->compile_script = compile_script_py;
     li->is_function = is_function_py;

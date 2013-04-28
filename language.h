@@ -8,14 +8,10 @@
 #include "function.h"
 
 typedef struct _language {
-#ifdef DEBUG
-#define LANG_MAGIC 0xa2b4c6d8
-    int32_t magic;
-#endif
     void*internal;
-    void*user;
     const char*name;
-    int verbosity;
+
+    bool timeout;
 
     void (*define_constant)(struct _language*li, const char*name, value_t*value);
     void (*define_function)(struct _language*li, const char*name, function_t*f);

@@ -27,11 +27,11 @@
 extern "C" {
 #endif
 
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
 #include <assert.h>
-char* dbg(const char*format, ...);
+#define dbg dbg_write
 #else
 #define assert(b) do {} while(0)
 #define dbg(f,...) do {} while(0)

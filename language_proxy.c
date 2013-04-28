@@ -254,8 +254,13 @@ static bool compile_script_proxy(language_t*li, const char*script)
     proxy->in_call = false;
 
     bool ret = false;
-    if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout))
+    if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout)) {
+        if(!timeout.tv_sec && !timeout.tv_usec) {
+            // TODO: verify that select does indeed set these values to 0 on timeout
+            li->timeout = true;
+        }
         return false;
+    }
     return !!ret;
 }
 
@@ -272,8 +277,9 @@ static bool is_function_proxy(language_t*li, const char*name)
     timeout.tv_usec = 0;
 
     bool ret = false;
-    if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout))
+    if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout)) {
         return false;
+    }
     return !!ret;
 }
 
@@ -298,7 +304,15 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
     process_callbacks(li, &timeout);
     proxy->in_call = false;
 
-    return read_value(proxy->fd_r, &timeout);
+    value_t*value = read_value(proxy->fd_r, &timeout);
+    if(!value) {
+        if(!timeout.tv_sec && !timeout.tv_usec) {
+            // TODO: verify that select does indeed set these values to 0 on timeout
+            li->timeout = true;
+        }
+        return NULL;
+    }
+    return value;
 }
 
 typedef struct _proxy_function {
@@ -490,9 +504,6 @@ static void destroy_proxy(language_t* li)
 language_t* proxy_new(language_t*old, int max_memory)
 {
     language_t * li = calloc(1, sizeof(language_t));
-#ifdef DEBUG
-    li->magic = LANG_MAGIC;
-#endif
     li->name = "proxy";
     li->compile_script = compile_script_proxy;
     li->is_function = is_function_proxy;

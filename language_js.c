@@ -38,7 +38,7 @@ static void error_callback(JSContext *cx, const char *message, JSErrorReport *re
     if(js->noerrors)
         return;
 
-    printf("line %u: %s\n", (unsigned int) report->lineno, message);
+    dbg("[js] line %u: %s\n", (unsigned int) report->lineno, message);
 
     if(js->li->error_file) {
         fprintf(js->li->error_file, "line %u: %s\n",
@@ -182,7 +182,11 @@ static void define_function_js(language_t*li, const char*name, function_t*f)
 
 bool init_js(js_internal_t*js)
 {
-    js->rt = JS_NewRuntime(128L * 1024L * 1024L);
+    int mem_size = 128L * 1024L * 1024L;
+
+    dbg("[js] allocating runtime with %dMB of memory", mem_size / 1048576);
+
+    js->rt = JS_NewRuntime(mem_size);
     if (js->rt == NULL)
         return false;
     js->cx = JS_NewContext(js->rt, 8192);
@@ -213,7 +217,7 @@ void define_constant_js(language_t*li, const char*name, value_t* value)
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval v = value_to_jsval(js->cx, value);
 #ifdef DEBUG
-    printf("js: define constant %s=",name);
+    printf("[js] define constant %s=",name);
     value_dump(value);
     printf("\n",name);
 #endif
@@ -227,7 +231,7 @@ static bool compile_script_js(language_t*li, const char*script)
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
     JSBool ok;
-    dbg("[javascript] compiling script");
+    dbg("[js] compiling script");
     ok = JS_EvaluateScript(js->cx, js->global, script, strlen(script), "__main__", 1, &rval);
     return ok;
 }
@@ -251,7 +255,7 @@ static bool is_function_js(language_t*li, const char*name)
 static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
-    dbg("[javascript] calling function %s", name);
+    dbg("[js] calling function %s", name);
     assert(_args->type == TYPE_ARRAY);
 
     JSBool ok;
@@ -269,7 +273,7 @@ static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
 
     value_t*val = jsval_to_value(js, rval);
 #ifdef DEBUG
-    printf("return value: ");
+    printf("[js] return value: ");
     value_dump(val);
     printf("\n");
 #endif
@@ -290,9 +294,6 @@ void destroy_js(language_t* li)
 language_t* javascript_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
-#ifdef DEBUG
-    li->magic = LANG_MAGIC;
-#endif
     li->name = "js";
     li->compile_script = compile_script_js;
     li->is_function = is_function_js;

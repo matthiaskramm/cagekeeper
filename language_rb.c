@@ -259,9 +259,6 @@ static void destroy_rb(language_t* li)
 language_t* ruby_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
-#ifdef DEBUG
-    li->magic = LANG_MAGIC;
-#endif
     li->name = "rb";
     li->compile_script = compile_script_rb;
     li->is_function = is_function_rb;

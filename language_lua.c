@@ -296,9 +296,6 @@ static void destroy_lua(language_t* li)
 language_t* lua_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
-#ifdef DEBUG
-    li->magic = LANG_MAGIC;
-#endif
     li->name = "lua";
     li->compile_script = compile_script_lua;
     li->is_function = is_function_lua;
