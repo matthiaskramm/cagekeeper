@@ -26,6 +26,7 @@ extern void *__libc_calloc(size_t nmemb, size_t size);
 extern void *__libc_realloc(void *ptr, size_t size);
 extern void *__libc_memalign(size_t size, size_t align);
 extern void *__libc_valloc(size_t size);
+extern void *__real_strdup(const char*s);
 
 static bool lockdown = false;
 static mspace msp;
@@ -99,6 +100,24 @@ void *__wrap_memalign(size_t size, size_t align)
     } else {
         dbg("memalign(%d, align)\n", size, align);
         void*ptr = __libc_memalign(size, align);
+        if(!ptr) {
+            write(2, "Out of memory\n", 14);
+            _exit(5);
+        }
+        return ptr;
+    }
+}
+
+void *__wrap_strdup(const char*s)
+{
+    if(lockdown) {
+        int l = strlen(s);
+        void*ptr = mspace_malloc(msp, l+1);
+        memcpy(ptr, s, l+1);
+        return ptr;
+    } else {
+        dbg("strdup()\n");
+        char*ptr = __real_strdup(s);
         if(!ptr) {
             write(2, "Out of memory\n", 14);
             _exit(5);

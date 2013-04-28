@@ -3,11 +3,11 @@ all: spec/run testlua testruby testpython
 PTMALLOC_CFLAGS=-DUSE_DL_PREFIX -DONLY_MSPACES -DMSPACES -DHAVE_MMAP=0 -DHAVE_REMAP=0 -DHAVE_MORECORE=1 -DMORECORE=sandbox_sbrk -DNO_MALLINFO=1
 LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi)
 PYTHON_CFLAGS=-I/usr/include/python2.7
+
 RUBY_CFLAGS=-I/usr/lib/ruby/1.8/i686-linux -D_FILE_OFFSET_BITS=64 -fno-strict-aliasing
-
 RUBY_LDFLAGS=-Wl,-O1 -rdynamic -Wl,-export-dynamic
-
 RUBY_LIBS=-lruby18 -lz -ldl -lcrypt -lm -lc
+
 PYTHON_LIBS=-lpython2.7 -lpthread
 LUA_LIBS=-llua
 JS_LIBS=-lmozjs185
@@ -18,9 +18,10 @@ MEMWRAP=-Wl,--wrap=malloc \
 	-Wl,--wrap=calloc \
 	-Wl,--wrap=realloc \
 	-Wl,--wrap=memalign \
+	-Wl,--wrap=strdup \
 	-Wl,--wrap=valloc
 
-CC=gcc -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(MEMWRAP) -g $(LIBFFI_CFLAGS)
+CC=gcc -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(MEMWRAP) $(LIBFFI_CFLAGS)
 
 LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) $(RUBY_LIBS)
 
