@@ -80,9 +80,6 @@ c_function_def_t functions[] = {
 
 int main(int argn, char*argv[])
 {
-    int max_memory = 128*1024*1024;
-    init_mem_wrapper(max_memory);
-
     char*program = argv[0];
     bool sandbox = true;
 

@@ -464,6 +464,16 @@ static bool spawn_child(language_t*li)
         int keep[] = {1, 2, proxy->fd_r, proxy->fd_w};
         close_all_fds(keep, sizeof(keep)/sizeof(keep[0]));
 
+        init_mem_wrapper(proxy->max_memory);
+
+        /* We haven't loaded any 3rd party code yet. 
+           Give the language interpreter a chance to do some initializations 
+           before we switch into secure mode.
+           TODO: we should either create it here directly or provide an explicit
+                 init method.
+         */
+        proxy->old->is_function(proxy->old, "_");
+
         seccomp_lockdown(proxy->max_memory);
         printf("[child] running in seccomp mode\n");
 

@@ -1,6 +1,5 @@
 #include <stdbool.h>
 #include <string.h>
-#include <assert.h>
 #ifdef _MSC_VER
 # define XP_WIN
 #else
@@ -15,6 +14,8 @@
 #include "function.h"
 
 typedef struct _js_internal {
+    bool initialized;
+
     language_t*li;
     JSRuntime *rt;
     JSContext *cx;
@@ -44,6 +45,42 @@ static void error_callback(JSContext *cx, const char *message, JSErrorReport *re
         fprintf(js->li->error_file, "line %u: %s\n",
             (unsigned int) report->lineno, message);
     }
+}
+
+bool init_js(js_internal_t*js)
+{
+    if(js->initialized)
+        return;
+    js->initialized = true;
+
+    int mem_size = 128L * 1024L * 1024L;
+
+    dbg("[js] allocating runtime with %dMB of memory", mem_size / 1048576);
+
+    js->rt = JS_NewRuntime(mem_size);
+    if (js->rt == NULL)
+        return false;
+    js->cx = JS_NewContext(js->rt, 8192);
+    if (js->cx == NULL)
+        return false;
+
+    JS_SetContextPrivate(js->cx, js);
+
+    JS_SetOptions(js->cx, JSOPTION_VAROBJFIX | JSOPTION_JIT);
+    JS_SetVersion(js->cx, JSVERSION_LATEST);
+    JS_SetErrorReporter(js->cx, error_callback);
+
+    js->global = JS_NewCompartmentAndGlobalObject(js->cx, &global_class, NULL);
+    if (js->global == NULL)
+        return false;
+
+    /* Populate the global object with the standard globals, like Object and Array. */
+    if (!JS_InitStandardClasses(js->cx, js->global))
+        return false;
+
+    js->buffer = malloc(65536);
+    js->jsfunction_to_function = dict_new(&ptr_type);
+    return true;
 }
 
 static value_t* jsval_to_value(const js_internal_t*js, jsval v)
@@ -171,6 +208,7 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
 static void define_function_js(language_t*li, const char*name, function_t*f)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
+    init_js(js);
     JSFunction*func = JS_DefineFunction(js->cx, js->global, 
                           name, 
                           js_function_proxy,
@@ -180,41 +218,10 @@ static void define_function_js(language_t*li, const char*name, function_t*f)
     dict_put(js->jsfunction_to_function, func, f);
 }
 
-bool init_js(js_internal_t*js)
-{
-    int mem_size = 128L * 1024L * 1024L;
-
-    dbg("[js] allocating runtime with %dMB of memory", mem_size / 1048576);
-
-    js->rt = JS_NewRuntime(mem_size);
-    if (js->rt == NULL)
-        return false;
-    js->cx = JS_NewContext(js->rt, 8192);
-    if (js->cx == NULL)
-        return false;
-
-    JS_SetContextPrivate(js->cx, js);
-
-    JS_SetOptions(js->cx, JSOPTION_VAROBJFIX | JSOPTION_JIT);
-    JS_SetVersion(js->cx, JSVERSION_LATEST);
-    JS_SetErrorReporter(js->cx, error_callback);
-
-    js->global = JS_NewCompartmentAndGlobalObject(js->cx, &global_class, NULL);
-    if (js->global == NULL)
-        return false;
-
-    /* Populate the global object with the standard globals, like Object and Array. */
-    if (!JS_InitStandardClasses(js->cx, js->global))
-        return false;
-
-    js->buffer = malloc(65536);
-    js->jsfunction_to_function = dict_new(&ptr_type);
-    return true;
-}
-
 void define_constant_js(language_t*li, const char*name, value_t* value)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
+    init_js(js);
     jsval v = value_to_jsval(js->cx, value);
 #ifdef DEBUG
     printf("[js] define constant %s=",name);
@@ -229,6 +236,7 @@ void define_constant_js(language_t*li, const char*name, value_t* value)
 static bool compile_script_js(language_t*li, const char*script)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
+    init_js(js);
     jsval rval;
     JSBool ok;
     dbg("[js] compiling script");
@@ -239,6 +247,7 @@ static bool compile_script_js(language_t*li, const char*script)
 static bool is_function_js(language_t*li, const char*name)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
+    init_js(js);
     jsval rval;
     JSBool ok;
     js->noerrors = 1;
@@ -255,6 +264,7 @@ static bool is_function_js(language_t*li, const char*name)
 static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
+    init_js(js);
     dbg("[js] calling function %s", name);
     assert(_args->type == TYPE_ARRAY);
 
@@ -283,10 +293,12 @@ static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
 void destroy_js(language_t* li)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
-    JS_DestroyContext(js->cx);
-    JS_DestroyRuntime(js->rt);
-    JS_ShutDown();
-    free(js->buffer);
+    if(js->initialized) {
+        JS_DestroyContext(js->cx);
+        JS_DestroyRuntime(js->rt);
+        JS_ShutDown();
+        free(js->buffer);
+    }
     free(js);
     free(li);
 }
@@ -304,7 +316,6 @@ language_t* javascript_interpreter_new()
     li->internal = calloc(1, sizeof(js_internal_t));
     js_internal_t*js = (js_internal_t*)li->internal;
     js->li = li;
-    init_js(js);
     return li;
 }
 
