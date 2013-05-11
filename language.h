@@ -13,6 +13,8 @@ typedef struct _language {
 
     bool timeout;
 
+    bool (*initialize)(struct _language*li, size_t maxmem);
+
     void (*define_constant)(struct _language*li, const char*name, value_t*value);
     void (*define_function)(struct _language*li, const char*name, function_t*f);
 

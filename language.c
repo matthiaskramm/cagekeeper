@@ -5,6 +5,7 @@
 #include <setjmp.h>
 #include <stdarg.h>
 #include "language.h"
+#include "settings.h"
 
 void language_error(language_t*li, const char*error, ...)
 {
@@ -103,11 +104,12 @@ language_t* wrap_sandbox(language_t*language)
     return proxy_new(language, max_memory);
 }
 
-language_t* interpreter_by_extension(const char*filename)
+static language_t* raw_interpreter_by_extension(const char*filename)
 {
     const char*dot = strrchr(filename, '.');
     const char*extension = dot ? dot+1 : filename;
 
+    language_t*core = NULL;
     if(!strcmp(extension, "lua"))
         return lua_interpreter_new();
     else if(!strcmp(extension, "py"))
@@ -116,6 +118,19 @@ language_t* interpreter_by_extension(const char*filename)
         return ruby_interpreter_new();
     else
         return javascript_interpreter_new();
+}
+
+language_t* interpreter_by_extension(const char*filename)
+{
+    return wrap_sandbox(raw_interpreter_by_extension(filename));
+}
+
+language_t* unsafe_interpreter_by_extension(const char*filename)
+{
+    language_t*li = raw_interpreter_by_extension(filename);
+    
+    li->initialize(li, config_maxmem);
+    return li;
 }
 
 void define_int_constant(language_t*li, const char*name, int i)

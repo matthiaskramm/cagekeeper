@@ -8,6 +8,7 @@
 #include "language.h"
 #include "dict.h"
 #include "seccomp.h"
+#include "settings.h"
 
 typedef struct _proxy_internal {
     language_t*li;
@@ -468,11 +469,9 @@ static bool spawn_child(language_t*li)
 
         /* We haven't loaded any 3rd party code yet. 
            Give the language interpreter a chance to do some initializations 
-           before we switch into secure mode.
-           TODO: we should either create it here directly or provide an explicit
-                 init method.
+           (with all syscalls still available) before we switch into secure mode.
          */
-        proxy->old->is_function(proxy->old, "_");
+        proxy->old->initialize(proxy->old, config_maxmem);
 
         seccomp_lockdown(proxy->max_memory);
         printf("[child] running in seccomp mode\n");
@@ -511,10 +510,16 @@ static void destroy_proxy(language_t* li)
     old->destroy(old);
 }
 
+bool initialize_proxy(language_t*li, size_t memsize)
+{
+    return true;
+}
+
 language_t* proxy_new(language_t*old, int max_memory)
 {
     language_t * li = calloc(1, sizeof(language_t));
     li->name = "proxy";
+    li->initialize = initialize_proxy;
     li->compile_script = compile_script_proxy;
     li->is_function = is_function_proxy;
     li->call_function = call_function_proxy;

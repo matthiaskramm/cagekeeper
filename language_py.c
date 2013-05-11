@@ -266,9 +266,16 @@ static void define_function_py(language_t*li, const char*name, function_t*f)
 
 static int py_reference_count = 0;
 
-static bool init_py(py_internal_t*py)
+static bool initialize_py(language_t*li, size_t mem_size)
 {
+    if(li->internal)
+        return true; //already initialized
+
     dbg("[python] initializing interpreter");
+
+    li->internal = calloc(1, sizeof(py_internal_t));
+    py_internal_t*py = (py_internal_t*)li->internal;
+    py->li = li;
 
     if(py_reference_count==0) {
         void*old = signal(2, SIG_IGN);
@@ -295,33 +302,33 @@ static bool init_py(py_internal_t*py)
     /* compile an empty script so Python has a chance to load all the things
        it needs for compiling (encodingsmodule etc.) */
     PyRun_String("None", Py_file_input, py->globals, NULL);
+
+    return true;
 }
 
 static void destroy_py(language_t* li)
 {
-    py_internal_t*py = (py_internal_t*)li->internal;
-    free(py->buffer);
-    free(py);
-    free(li);
-    if(--py_reference_count==0) {
-        Py_Finalize();
+    if(li->internal) {
+        py_internal_t*py = (py_internal_t*)li->internal;
+        free(py->buffer);
+        free(py);
+        if(--py_reference_count==0) {
+            Py_Finalize();
+        }
     }
+    free(li);
 }
 
 language_t* python_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
     li->name = "py";
+    li->initialize = initialize_py;
     li->compile_script = compile_script_py;
     li->is_function = is_function_py;
     li->call_function = call_function_py;
     li->define_constant = define_constant_py;
     li->define_function = define_function_py;
     li->destroy = destroy_py;
-    li->internal = calloc(1, sizeof(py_internal_t));
-
-    py_internal_t*py = (py_internal_t*)li->internal;
-    py->li = li;
-    init_py(py);
     return li;
 }

@@ -13,8 +13,15 @@ typedef struct _rb_internal {
 static rb_internal_t*global;
 static int rb_reference_count = 0;
 
-static bool init_rb(rb_internal_t*rb)
+static bool initialize_rb(language_t*li, size_t mem_size)
 {
+    if(li->internal)
+        return true; // already initialized
+
+    li->internal = calloc(1, sizeof(rb_internal_t));
+    rb_internal_t*rb = (rb_internal_t*)li->internal;
+    rb->li = li;
+
     if(rb_reference_count==0) {
         ruby_init();
         global = rb;
@@ -22,6 +29,8 @@ static bool init_rb(rb_internal_t*rb)
     rb_reference_count++;
 
     rb->object = rb_eval_string("Object");
+
+    return true;
 }
 
 static void rb_report_error(VALUE error)
@@ -252,11 +261,13 @@ static value_t* call_function_rb(language_t*li, const char*name, value_t*args)
 
 static void destroy_rb(language_t* li)
 {
-    rb_internal_t*rb = (rb_internal_t*)li->internal;
-    if(--rb_reference_count == 0) {
-        ruby_finalize();
+    if(li->internal) {
+        rb_internal_t*rb = (rb_internal_t*)li->internal;
+        if(--rb_reference_count == 0) {
+            ruby_finalize();
+        }
+        free(rb);
     }
-    free(rb);
     free(li);
 }
 
@@ -264,16 +275,13 @@ language_t* ruby_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
     li->name = "rb";
+    li->initialize = initialize_rb;
     li->compile_script = compile_script_rb;
     li->is_function = is_function_rb;
     li->define_constant = define_constant_rb;
     li->define_function = define_function_rb;
     li->call_function = call_function_rb;
     li->destroy = destroy_rb;
-    li->internal = calloc(1, sizeof(rb_internal_t));
-    rb_internal_t*rb = (rb_internal_t*)li->internal;
-    rb->li = li;
-    init_rb(rb);
     return li;
 }
 

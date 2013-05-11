@@ -88,10 +88,19 @@ static void show_error(language_t*li, lua_State *l)
     }
 }
 
-static bool init_lua(lua_internal_t*lua)
+static bool initialize_lua(language_t*li, size_t mem_size)
 {
+    if(li->internal)
+        return true; // already initialized
+
+    li->internal = calloc(1, sizeof(lua_internal_t));
+    lua_internal_t*lua = (lua_internal_t*)li->internal;
+    lua->li = li;
+
     lua_State*l = lua->state = lua_open();
     openlualibs(l);
+
+    return true;
 }
 
 static bool compile_script_lua(language_t*li, const char*script)
@@ -287,9 +296,11 @@ static value_t* call_function_lua(language_t*li, const char*name, value_t*args)
 
 static void destroy_lua(language_t* li)
 {
-    lua_internal_t*lua = (lua_internal_t*)li->internal;
-    lua_close(lua->state);
-    free(lua);
+    if(li->internal) {
+        lua_internal_t*lua = (lua_internal_t*)li->internal;
+        lua_close(lua->state);
+        free(lua);
+    }
     free(li);
 }
 
@@ -297,15 +308,12 @@ language_t* lua_interpreter_new()
 {
     language_t * li = calloc(1, sizeof(language_t));
     li->name = "lua";
+    li->initialize = initialize_lua;
     li->compile_script = compile_script_lua;
     li->is_function = is_function_lua;
     li->call_function = call_function_lua;
     li->define_function = define_function_lua;
     li->define_constant = define_constant_lua;
     li->destroy = destroy_lua;
-    li->internal = calloc(1, sizeof(lua_internal_t));
-    lua_internal_t*lua = (lua_internal_t*)li->internal;
-    lua->li = li;
-    init_lua(lua);
     return li;
 }

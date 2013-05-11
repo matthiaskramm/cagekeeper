@@ -26,7 +26,7 @@ CXX=$(CC)
 
 LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) $(RUBY_LIBS)
 
-OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_rb.o language_proxy.o language.o util.o seccomp.o mem.o ptmalloc/malloc.o
+OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_rb.o language_proxy.o language.o util.o settings.o seccomp.o mem.o ptmalloc/malloc.o
 INCLUDES=function.h dict.h language.h
 
 spec/run: spec/run.o $(INCLUDES) $(OBJECTS)
@@ -61,6 +61,9 @@ dict.o: dict.c language.h
 util.o: util.c util.h
 	$(CC) -c util.c
 
+settings.o: settings.c settings.h
+	$(CC) -c settings.c
+
 function.o: function.c function.h
 	$(CC) -c function.c
 
@@ -90,6 +93,7 @@ clean:
 	rm -f *.so *.o testpython ptmalloc/*.o spec/run spec/run.o
 
 test:
+	./testpython
 	./run_specs -a
 
 .PHONY: all clean

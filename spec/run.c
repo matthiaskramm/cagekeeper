@@ -104,7 +104,7 @@ int main(int argn, char*argv[])
 
     char*filename = argv[0];
 
-    language_t*l = interpreter_by_extension(filename);
+    language_t*l = unsafe_interpreter_by_extension(filename);
     if(!l) {
         fprintf(stderr, "Couldn't initialize interpreter for %s\n", filename);
         return 1;
