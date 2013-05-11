@@ -17,7 +17,6 @@ typedef struct _proxy_internal {
     int fd_w;
     int fd_r;
     int timeout;
-    int max_memory;
     dict_t*callback_functions;
     bool in_call;
 } proxy_internal_t;
@@ -496,7 +495,7 @@ static bool spawn_child(language_t*li)
             _exit(44);
         }
 
-        seccomp_lockdown(proxy->max_memory);
+        seccomp_lockdown();
         printf("[child] running in seccomp mode\n");
 
         child_loop(li);
@@ -538,7 +537,7 @@ bool initialize_proxy(language_t*li, size_t memsize)
     return true;
 }
 
-language_t* proxy_new(language_t*old, int max_memory)
+language_t* proxy_new(language_t*old)
 {
     language_t * li = calloc(1, sizeof(language_t));
     li->name = "proxy";
@@ -555,7 +554,6 @@ language_t* proxy_new(language_t*old, int max_memory)
     proxy->li = li;
     proxy->old = old;
     proxy->timeout = 10;
-    proxy->max_memory = max_memory;
 
     if(!spawn_child(li)) {
         fprintf(stderr, "Couldn't spawn child process\n");

@@ -96,7 +96,7 @@ value_t* compile_and_run_function_with_timeout(language_t*l, const char*script, 
     return with_timeout(l, script, function, args, max_seconds, timeout);
 }
 
-language_t* proxy_new(language_t*language, int max_memory);
+language_t* proxy_new(language_t*language);
 
 language_t* wrap_sandbox(language_t*language)
 {
@@ -104,7 +104,7 @@ language_t* wrap_sandbox(language_t*language)
         fprintf(stderr, "Can't wrap sandbox, language already initialized\n");
         return NULL;
     }
-    return proxy_new(language, config_maxmem);
+    return proxy_new(language);
 }
 
 static language_t* raw_interpreter_by_extension(const char*filename)
