@@ -21,7 +21,6 @@
 #include <stdlib.h>
 #include "util.h"
 #include "dict.h"
-#include "mem.h"
 
 // ------------------------------- crc32 -------------------------------
 static unsigned int crc32[256];

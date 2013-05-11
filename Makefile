@@ -1,6 +1,5 @@
 all: spec/run testbrk testlua testruby testpython testjs libcagekeeper.a
 
-PTMALLOC_CFLAGS=-DUSE_DL_PREFIX -DONLY_MSPACES -DMSPACES -DHAVE_MMAP=0 -DHAVE_REMAP=0 -DHAVE_MORECORE=1 -DMORECORE=sandbox_sbrk -DNO_MALLINFO=1
 LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi)
 PYTHON_CFLAGS=-I/usr/include/python2.7
 
@@ -13,20 +12,12 @@ LUA_LIBS=-llua
 JS_LIBS=-lmozjs185
 FFI_LIBS:=$(shell pkg-config --libs libffi)
 
-MEMWRAP=-Wl,--wrap=malloc \
-	-Wl,--wrap=free \
-	-Wl,--wrap=calloc \
-	-Wl,--wrap=realloc \
-	-Wl,--wrap=memalign \
-	-Wl,--wrap=strdup \
-	-Wl,--wrap=valloc
-
-CC=gcc -g -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(MEMWRAP) $(LIBFFI_CFLAGS)
+CC=gcc -g -fPIC $(RUBY_CFLAGS) $(RUBY_LDFLAGS) -Wl,--export-dynamic $(LIBFFI_CFLAGS)
 CXX=$(CC)
 
 LIBS=$(JS_LIBS) $(LUA_LIBS) $(PYTHON_LIBS) $(FFI_LIBS) $(RUBY_LIBS)
 
-OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_rb.o language_proxy.o language.o util.o settings.o seccomp.o mem.o ptmalloc/malloc.o
+OBJECTS=function.o dict.o language_js.o language_py.o language_lua.o language_rb.o language_proxy.o language.o util.o settings.o seccomp.o
 INCLUDES=function.h dict.h language.h
 
 spec/run: spec/run.o $(INCLUDES) $(OBJECTS)
@@ -47,16 +38,8 @@ testruby: testruby.o $(OBJECTS)
 testjs: testjs.o $(OBJECTS)
 	$(CC) testjs.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
 
-ptmalloc/malloc.o: ptmalloc/malloc.c ptmalloc/malloc-2.8.3.h
-	$(CC) -c $(PTMALLOC_CFLAGS) -Iptmalloc ptmalloc/malloc.c -o $@
-ptmalloc/ptmalloc3.o: ptmalloc/ptmalloc3.c ptmalloc/malloc-2.8.3.h
-	$(CC) -c $(PTMALLOC_CFLAGS) -Iptmalloc ptmalloc/ptmalloc3.c -o $@
-
-mem.o: mem.c
-	$(CC) -c $(PTMALLOC_CFLAGS) mem.c -o $@
-
 seccomp.o: seccomp.c
-	$(CC) -c $(PTMALLOC_CFLAGS) seccomp.c -o $@
+	$(CC) -c seccomp.c -o $@
 
 dict.o: dict.c language.h
 	$(CC) -c dict.c
@@ -93,9 +76,10 @@ libcagekeeper.a: $(OBJECTS)
 	ranlib $@
 
 clean:
-	rm -f *.so *.o testpython ptmalloc/*.o spec/run spec/run.o
+	rm -f *.so *.o testpython spec/run spec/run.o
 
 test:
+	./testjs
 	./run_specs -a
 
 .PHONY: all clean
