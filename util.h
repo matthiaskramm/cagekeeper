@@ -22,12 +22,13 @@
 
 #include <stdbool.h>
 #include <sys/select.h>
+#undef assert // defined by sys/select.h
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-//#define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #include <assert.h>

@@ -18,6 +18,8 @@ static bool initialize_rb(language_t*li, size_t mem_size)
     if(li->internal)
         return true; // already initialized
 
+    dbg("[rb] initializing\n");
+
     li->internal = calloc(1, sizeof(rb_internal_t));
     rb_internal_t*rb = (rb_internal_t*)li->internal;
     rb->li = li;
@@ -233,10 +235,13 @@ static VALUE call_function_internal(VALUE _fcall)
     for(i=0;i<num_args;i++) {
         args[i] = value_to_ruby(fcall->args->data[i]);
     }
-    return rb_funcall2(rb->object, fname, num_args, (VALUE*)args);
+    
+    volatile VALUE ret = rb_funcall2(rb->object, fname, num_args, (VALUE*)args);
+    return ret;
 }
 static VALUE call_function_exception(VALUE _fcall, VALUE exc)
 {
+    dbg("[rb] call_function_exception");
     ruby_fcall_t*fcall = (ruby_fcall_t*)_fcall;
     rb_report_error(exc);
     fcall->fail = true;

@@ -104,18 +104,15 @@ int main(int argn, char*argv[])
 
     char*filename = argv[0];
 
-    language_t*l = unsafe_interpreter_by_extension(filename);
-    if(!l) {
-        fprintf(stderr, "Couldn't initialize interpreter for %s\n", filename);
-        return 1;
-    }
-
+    language_t*l;
     if(sandbox) {
-        l = wrap_sandbox(l);
-        if(!l) {
-            fprintf(stderr, "Couldn't initialize sandbox\n");
-            return 1;
-        }
+        l = interpreter_by_extension(filename);
+    } else {
+        l = unsafe_interpreter_by_extension(filename);
+    }
+    if(!l) {
+        fprintf(stderr, "Couldn't initialize %sinterpreter for %s\n", l?"sandboxed":"", filename);
+        return 1;
     }
 
     define_c_functions(l, functions);

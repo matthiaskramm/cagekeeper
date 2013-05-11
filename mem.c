@@ -8,6 +8,7 @@
 #include "ptmalloc/malloc-2.8.3.h"
 
 #ifdef DEBUG_MEMORY
+#include <stdarg.h>
 char* dbg(const char*format, ...)
 {
     va_list arglist;
@@ -29,13 +30,23 @@ extern void *__libc_valloc(size_t size);
 extern void *__real_strdup(const char*s);
 
 static bool lockdown = false;
+
+static void*msp_ptr = NULL;
+static size_t msp_size = 0;
 static mspace msp;
 
 void init_mem_wrapper(size_t size)
 {
     lockdown = true;
-    void*mem =  __libc_malloc(size);
-    msp = create_mspace_with_base(mem, size, 0);
+    msp_ptr = __libc_malloc(size);
+    msp_size = size;
+    msp = create_mspace_with_base(msp_ptr, msp_size, 0);
+    printf("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
+}
+
+bool is_mem_wrapped(void*ptr) 
+{
+    return ptr > msp_ptr && ptr < msp_ptr + msp_size;
 }
 
 void *__wrap_malloc(size_t size)
@@ -68,7 +79,7 @@ void *__wrap_calloc(size_t nmemb, size_t size)
     if(lockdown) {
         return mspace_calloc(msp, nmemb, size);
     } else {
-        dbg("calloc(%d)\n", size);
+        dbg("calloc(%d,%d)\n", nmemb, size);
         void*ptr = __libc_calloc(nmemb, size);
         if(!ptr) {
             write(2, "Out of memory\n", 14);

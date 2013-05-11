@@ -19,8 +19,9 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <assert.h>
+#include "util.h"
 #include "dict.h"
+#include "mem.h"
 
 // ------------------------------- crc32 -------------------------------
 static unsigned int crc32[256];
@@ -175,8 +176,7 @@ static int max(int x, int y) {
 dict_t*dict_new(hashtype_t*t)
 {
     dict_t*d = malloc(sizeof(dict_t));
-    dict_init(d, INITIAL_SIZE);
-    d->key_type = t;
+    dict_init2(d, t, INITIAL_SIZE);
     return d;
 }
 void dict_init(dict_t*h, int size)
@@ -232,8 +232,9 @@ static void dict_expand(dict_t*h, int newlen)
             e = next;
         }
     }
-    if(h->slots)
+    if(h->slots) {
         free(h->slots);
+    }
     h->slots = newslots;
     h->hashsize = newlen;
 }

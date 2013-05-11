@@ -1,4 +1,4 @@
-all: spec/run testlua testruby testpython testjs libcagekeeper.a
+all: spec/run testbrk testlua testruby testpython testjs libcagekeeper.a
 
 PTMALLOC_CFLAGS=-DUSE_DL_PREFIX -DONLY_MSPACES -DMSPACES -DHAVE_MMAP=0 -DHAVE_REMAP=0 -DHAVE_MORECORE=1 -DMORECORE=sandbox_sbrk -DNO_MALLINFO=1
 LIBFFI_CFLAGS := $(shell pkg-config --cflags libffi)
@@ -32,6 +32,9 @@ INCLUDES=function.h dict.h language.h
 spec/run: spec/run.o $(INCLUDES) $(OBJECTS)
 	$(CC) spec/run.o $(OBJECTS) $(LIBS) -o $@
 
+testbrk: testbrk.o
+	gcc testbrk.o -o $@
+
 testpython: testpython.o $(OBJECTS)
 	$(CC) testpython.o $(OBJECTS) $(LIBS) -o $@
 
@@ -39,7 +42,7 @@ testlua: testlua.o $(OBJECTS)
 	$(CC) testlua.o $(OBJECTS) $(LIBS) -o $@
 
 testruby: testruby.o $(OBJECTS)
-	$(CC) testruby.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
+	$(CC) testruby.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS)
 
 testjs: testjs.o $(OBJECTS)
 	$(CC) testjs.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
@@ -93,7 +96,6 @@ clean:
 	rm -f *.so *.o testpython ptmalloc/*.o spec/run spec/run.o
 
 test:
-	./testpython
 	./run_specs -a
 
 .PHONY: all clean

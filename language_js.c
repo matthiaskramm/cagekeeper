@@ -54,7 +54,7 @@ static bool initialize_js(language_t*li, size_t mem_size)
     js_internal_t*js = (js_internal_t*)li->internal;
     js->li = li;
 
-    dbg("[js] allocating runtime with %dMB of memory", mem_size / 1048576);
+    dbg("[js] initializing: allocating runtime with %dMB of memory", mem_size / 1048576);
 
     js->rt = JS_NewRuntime(mem_size);
     if (js->rt == NULL)
@@ -188,19 +188,22 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
         return JS_FALSE;
     }
 
+    dbg("[js] callback (1)");
     function_t*f = dict_lookup(js->jsfunction_to_function, func);
+    dbg("[js] callback (2)");
+
     if(!f) {
         language_error(js->li, "Internal error: Javascript tried to call native function %p (%d args), which we've never seen before.", func, argc);
         return JS_FALSE;
     }
 
-    dbg("[js] native call");
     value_t* args = js_argv_to_args(js->li, cx, argc, argv);
     value_t* value = f->call(f, args);
     value_destroy(args);
 
     JS_SET_RVAL(cx, vp, value_to_jsval(cx, value));
     value_destroy(value);
+    dbg("[js] callback successful");
     return JS_TRUE;
 }
 
@@ -235,7 +238,8 @@ static bool compile_script_js(language_t*li, const char*script)
     js_internal_t*js = (js_internal_t*)li->internal;
     jsval rval;
     JSBool ok;
-    dbg("[js] compiling script");
+    
+    dbg("[js] compiling script %p %p", script, js);
     ok = JS_EvaluateScript(js->cx, js->global, script, strlen(script), "__main__", 1, &rval);
     return ok;
 }
@@ -243,6 +247,7 @@ static bool compile_script_js(language_t*li, const char*script)
 static bool is_function_js(language_t*li, const char*name)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
+    dbg("[js] is_function %s", name);
     jsval rval;
     JSBool ok;
     js->noerrors = 1;
@@ -269,6 +274,7 @@ static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
         args[i] = value_to_jsval(js->cx, _args->data[i]);
     }
     jsval rval;
+
     ok = JS_CallFunctionName(js->cx, js->global, name, _args->length, args, &rval);
     if(!ok) {
         language_error(js->li, "execution of function %s failed\n", name);

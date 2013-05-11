@@ -43,6 +43,7 @@ language_t* ruby_interpreter_new();
 language_t* wrap_sandbox(language_t*language);
 
 language_t* interpreter_by_extension(const char*filename);
+language_t* unsafe_interpreter_by_extension(const char*filename);
 
 void language_error(language_t*l, const char*error, ...);
 #define language_log language_error

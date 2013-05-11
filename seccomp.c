@@ -11,6 +11,9 @@
 #define __USE_GNU
 #include <dlfcn.h>
 
+#include "settings.h"
+
+#define CATCH_SIGNALS
 #define HIJACK_SYSCALLS
 #define LOG_SYSCALLS
 #define REFUSE_UNSUPPORTED
@@ -50,20 +53,42 @@ static ssize_t my_write(int handle, void*data, int length) {
     return ret;
 }
 
+static int32_t current_brk = 0;
+static int32_t max_brk = 0;
+
+static int direct_brk(int addr)
+{
+    int ret;
+    asm(
+        "push %%ebx\n"
+        "mov %1, %%ebx\n" // addr
+        "mov %2, %%eax\n" // syscall nr
+        "int $0x080\n"
+        "pop %%ebx\n"
+        "mov %%eax, %0\n"
+        : "=r" (ret)
+        : "m" (addr),
+          "i" (__NR_brk));
+    return ret;
+}
+
 static void direct_exit(int code)
 {
     int ret;
     asm(
+        "push %%ebx\n"
         "mov %1, %%ebx\n" // code
         "mov %2, %%eax\n" // sys_exit
         "int $0x080\n"
-        : "=ra" (ret)
+        "pop %%ebx\n"
+        "mov %%eax, %0\n"
+        : "=r" (ret)
         : "m" (code),
           "i" (__NR_exit));
 }
 
 
-char* dbg(const char*format, ...)
+char* dbg_write(const char*format, ...)
 {
     static char buffer[256];
     va_list arglist;
@@ -85,10 +110,10 @@ char* dbg(const char*format, ...)
 }
 
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
-    dbg("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
+    dbg_write("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, ebx, ecx, edx, esi, edi);
     if(eax == __NR_open) {
-        dbg("\topen: %s\n", (char*)ebx);
+        dbg_write("\topen: %s\n", (char*)ebx);
     }
 }
 
@@ -183,11 +208,34 @@ void _dummy(void) {
         "je refuse\n"
         "cmp $174, %%eax\n" // rt_sigaction
         "je refuse\n"
-        "cmp $5, %%eax\n " // open
+        "cmp $126, %%eax\n" // sigprocmask
+        "je refuse\n"
+        "cmp $5, %%eax\n "  // open
         "je refuse\n"
         "cmp $172, %%eax\n" // prctl
         "je forward\n"
-        "jmp forward\n"
+        "cmp $1, %%eax\n"   // exit
+        "je forward\n"
+        "cmp $3, %%eax\n"   // read
+        "je forward\n"
+        "cmp $4, %%eax\n"   // write
+        "je forward\n"
+        "cmp $45, %%eax\n"  // brk
+        "je fake_brk\n"
+        "jmp refuse\n"
+
+"fake_brk:\n"
+        "cmp current_brk, %%ebx\n"
+        "jle fake_brk_done\n"
+        "cmp max_brk, %%ebx\n"
+        "jle fake_brk_below_max\n"
+        "mov max_brk, %%ebx\n"
+"fake_brk_below_max:\n"
+        "mov %%ebx, current_brk\n"
+"fake_brk_done:\n"
+        "mov current_brk, %%eax\n"
+        "jmp exit\n"
+
 "refuse:\n"
 
 #ifdef SET_ERRNO
@@ -234,39 +282,49 @@ static void hijack_linux_gate(void) {
 #define SECCOMP_MODE_STRICT 1
 #endif
 
+#ifdef CATCH_SIGNALS
 static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
     Dl_info info; 
-    dbg("signal %d, at %p\n", signal, info.dli_saddr);
+    dbg_write("signal %d, at %p\n", signal, info.dli_saddr);
     void*here;
     void**stack_top = &here;
     int i = 0;
     for(i=0;i<256;i++) {
         if(dladdr(*stack_top, &info) && info.dli_saddr && info.dli_sname) {
-            dbg("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
+            dbg_write("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
         }
         stack_top++;
     }
 
     direct_exit(signal);
 }
-
 static struct sigaction sig;
+#endif
 
 void seccomp_lockdown()
 {
+#ifdef CATCH_SIGNALS
     sig.sa_sigaction = handle_signal;
     sig.sa_flags = SA_SIGINFO;
     sigaction(11, &sig, NULL);
     sigaction(6, &sig, NULL);
+#endif
 
 #ifdef HIJACK_SYSCALLS
     errno_location = __errno_location();
     hijack_linux_gate();
 #endif
 
-    int ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
+    current_brk = direct_brk(0);
+    max_brk = current_brk + config_maxmem;
+    int ret = direct_brk(max_brk);
+    if(ret < max_brk) {
+        fprintf(stderr, "Could not expand process data segment (brk)\n");
+        _exit(1);
+    }
 
+    ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
     if(ret) {
         fprintf(stderr, "could not enter secure computation mode\n");
         perror("prctl");

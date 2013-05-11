@@ -24,7 +24,7 @@ void language_error(language_t*li, const char*error, ...)
         free((void*)li->error);
     }
 #ifdef DEBUG
-    printf("%s\n", buf);fflush(stdout);
+    dbg("%s\n", buf);
 #endif
     if(li->error_file) {
         fprintf(li->error_file, "%s\n", buf);
@@ -100,8 +100,11 @@ language_t* proxy_new(language_t*language, int max_memory);
 
 language_t* wrap_sandbox(language_t*language)
 {
-    int max_memory = 128 * 1048576;
-    return proxy_new(language, max_memory);
+    if(language->internal) {
+        fprintf(stderr, "Can't wrap sandbox, language already initialized\n");
+        return NULL;
+    }
+    return proxy_new(language, config_maxmem);
 }
 
 static language_t* raw_interpreter_by_extension(const char*filename)
@@ -129,7 +132,11 @@ language_t* unsafe_interpreter_by_extension(const char*filename)
 {
     language_t*li = raw_interpreter_by_extension(filename);
     
-    li->initialize(li, config_maxmem);
+    bool ret = li->initialize(li, config_maxmem);
+    if(!ret) {
+        li->destroy(li);
+        return NULL;
+    }
     return li;
 }
 

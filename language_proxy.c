@@ -30,6 +30,7 @@ typedef struct _proxy_internal {
 
 #define RESP_CALLBACK 10
 #define RESP_RETURN 11
+#define RESP_ERROR 12
 
 #define MAX_ARRAY_SIZE 1024
 #define MAX_STRING_SIZE 4096
@@ -46,12 +47,12 @@ static void write_string(int fd, const char*name)
     write(fd, name, l);
 }
 
-static char* read_string(int fd, struct timeval* timeout)
+static char* read_string(int fd, int max_size, struct timeval* timeout)
 {
     int l = 0;
     if(!read_with_timeout(fd, &l, sizeof(l), timeout))
         return NULL;
-    if(l<0 || l>=MAX_STRING_SIZE)
+    if(l<0 || (max_size && l>=max_size))
         return NULL;
     char* s = malloc(l+1);
     if(!s)
@@ -92,7 +93,7 @@ static const char* write_value(int fd, value_t*v)
     }
 }
 
-static value_t* _read_value(int fd, int*count, struct timeval* timeout)
+static value_t* _read_value(int fd, int*count, int max_string_size, int max_array_size, struct timeval* timeout)
 { 
     char b = 0;
     if(!read_with_timeout(fd, &b, 1, timeout)) {
@@ -119,7 +120,7 @@ static value_t* _read_value(int fd, int*count, struct timeval* timeout)
             }
             return value_new_boolean(!!dummy.b);
         case TYPE_STRING: {
-            char*s = read_string(fd, timeout);
+            char*s = read_string(fd, max_string_size, timeout);
             if(!s)
                 return NULL;
             value_t* v = value_new_string(s);
@@ -132,18 +133,18 @@ static value_t* _read_value(int fd, int*count, struct timeval* timeout)
             }
 
             /* protect against int overflows */
-            if(dummy.length >= MAX_ARRAY_SIZE)
+            if(max_array_size && dummy.length >= max_array_size)
                 return NULL;
             if(dummy.length >= INT_MAX - *count)
                 return NULL;
 
-            if(dummy.length + *count >= MAX_ARRAY_SIZE)
+            if(max_array_size && dummy.length + *count >= max_array_size)
                 return NULL;
 
             value_t*array = array_new();
             int i;
             for(i=0;i<dummy.length;i++) {
-                value_t*entry = _read_value(fd, count, timeout);
+                value_t*entry = _read_value(fd, count, max_string_size, max_array_size, timeout);
                 if(entry == NULL) {
                     value_destroy(array);
                     return NULL;
@@ -161,8 +162,15 @@ static value_t* _read_value(int fd, int*count, struct timeval* timeout)
 static value_t* read_value(int fd, struct timeval* timeout)
 {
     int count = 0;
-    return _read_value(fd, &count, timeout);
+    return _read_value(fd, &count, MAX_STRING_SIZE, MAX_ARRAY_SIZE, timeout);
 }
+
+static value_t* read_value_nolimit(int fd)
+{
+    int count = 0;
+    return _read_value(fd, &count, 0, 0, NULL);
+}
+
 
 static void define_constant_proxy(language_t*li, const char*name, value_t*value)
 {
@@ -205,7 +213,7 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
 
         switch(resp) {
             case RESP_CALLBACK: {
-                char*name = read_string(proxy->fd_r, timeout);
+                char*name = read_string(proxy->fd_r, MAX_STRING_SIZE, timeout);
                 if(!name) {
                     return false;
                 }
@@ -228,6 +236,8 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
                 free(name);
             }
             break;
+            case RESP_ERROR:
+            return false;
             case RESP_RETURN:
             return true;
         }
@@ -250,11 +260,15 @@ static bool compile_script_proxy(language_t*li, const char*script)
         language_error(li, "You called (or compiled) the guest program, and the guest program called back. You can't invoke the guest again from your callback function.");
         return NULL;
     }
-    proxy->in_call = true;
-    process_callbacks(li, &timeout);
-    proxy->in_call = false;
 
     bool ret = false;
+
+    proxy->in_call = true;
+    ret = process_callbacks(li, &timeout);
+    if(!ret)
+        return false;
+    proxy->in_call = false;
+
     if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout)) {
         if(!timeout.tv_sec && !timeout.tv_usec) {
             // TODO: verify that select does indeed set these values to 0 on timeout
@@ -301,8 +315,13 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
         language_error(li, "You called the guest program, and the guest program called back. You can't invoke the guest again from your callback function.");
         return NULL;
     }
+
+    bool ret;
+
     proxy->in_call = true;
-    process_callbacks(li, &timeout);
+    ret = process_callbacks(li, &timeout);
+    if(!ret)
+        return NULL;
     proxy->in_call = false;
 
     value_t*value = read_value(proxy->fd_r, &timeout);
@@ -339,7 +358,7 @@ static value_t* proxy_function_call(value_t*v, value_t*args)
     write_byte(proxy->fd_w, RESP_CALLBACK);
     write_string(proxy->fd_w, f->name);
     write_value(proxy->fd_w, args);
-    return read_value(proxy->fd_r, NULL);
+    return read_value_nolimit(proxy->fd_r);
 }
 
 static void child_loop(language_t*li)
@@ -352,23 +371,22 @@ static void child_loop(language_t*li)
 
     while(1) {
         char command;
-        dbg("[sandbox] reading next command");
         if(!read_with_retry(r, &command, 1)) {
-            dbg("[sandbox] Couldn't read command");
+            dbg("[sandbox] Couldn't read command- parent terminated?");
             _exit(1);
         }
 
         dbg("[sandbox] command=%d", command);
         switch(command) {
             case DEFINE_CONSTANT: {
-                char*s = read_string(r, NULL);
+                char*s = read_string(r, 0, NULL);
                 dbg("[sandbox] define constant(%s)", s);
-                value_t*v = read_value(r, NULL);
+                value_t*v = read_value_nolimit(r);
                 old->define_constant(old, s, v);
             }
             break;
             case DEFINE_FUNCTION: {
-                char*name = read_string(r, NULL);
+                char*name = read_string(r, 0, NULL);
                 uint8_t num_params = 0;
                 read_with_retry(r, &num_params, 1);
 
@@ -389,7 +407,7 @@ static void child_loop(language_t*li)
             }
             break;
             case COMPILE_SCRIPT: {
-                char*script = read_string(r, NULL);
+                char*script = read_string(r, 0, NULL);
                 dbg("[sandbox] compile script");
                 bool ret = old->compile_script(old, script);
                 write_byte(w, RESP_RETURN);
@@ -398,7 +416,7 @@ static void child_loop(language_t*li)
             }
             break;
             case IS_FUNCTION: {
-                char*function_name = read_string(r, NULL);
+                char*function_name = read_string(r, 0, NULL);
                 dbg("[sandbox] is_function(%s)", function_name);
                 bool ret = old->is_function(old, function_name);
                 write_byte(w, ret);
@@ -406,17 +424,21 @@ static void child_loop(language_t*li)
             }
             break;
             case CALL_FUNCTION: {
-                char*function_name = read_string(r, NULL);
+                char*function_name = read_string(r, 0, NULL);
                 dbg("[sandbox] call_function(%s)", function_name, old->name);
-                value_t*args = read_value(r, NULL);
+                value_t*args = read_value_nolimit(r);
                 value_t*ret = old->call_function(old, function_name, args);
-                dbg("[sandbox] returning function value (%s)", type_to_string(ret->type));
-                write_byte(w, RESP_RETURN);
-                write_value(w, ret);
-
+                if(ret) {
+                    dbg("[sandbox] returning function value (%s)", type_to_string(ret->type));
+                    write_byte(w, RESP_RETURN);
+                    write_value(w, ret);
+                    value_destroy(ret);
+                } else {
+                    dbg("[sandbox] error calling function %s", function_name);
+                    write_byte(w, RESP_ERROR);
+                }
                 free(function_name);
                 value_destroy(args);
-                value_destroy(ret);
             }
             break;
             default: {
@@ -471,7 +493,10 @@ static bool spawn_child(language_t*li)
            Give the language interpreter a chance to do some initializations 
            (with all syscalls still available) before we switch into secure mode.
          */
-        proxy->old->initialize(proxy->old, config_maxmem);
+        bool ret = proxy->old->initialize(proxy->old, config_maxmem);
+        if(!ret) {
+            _exit(44);
+        }
 
         seccomp_lockdown(proxy->max_memory);
         printf("[child] running in seccomp mode\n");
