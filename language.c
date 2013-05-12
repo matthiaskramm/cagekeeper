@@ -23,9 +23,9 @@ void language_error(language_t*li, const char*error, ...)
     if(li->error) {
         free((void*)li->error);
     }
-#ifdef DEBUG
-    dbg("%s\n", buf);
-#endif
+
+    printf("%s\n", buf);
+
     if(li->error_file) {
         fprintf(li->error_file, "%s\n", buf);
     }

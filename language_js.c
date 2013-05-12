@@ -36,13 +36,7 @@ static void error_callback(JSContext *cx, const char *message, JSErrorReport *re
     js_internal_t*js = JS_GetContextPrivate(cx);
     if(js->noerrors)
         return;
-
-    dbg("[js] line %u: %s\n", (unsigned int) report->lineno, message);
-
-    if(js->li->error_file) {
-        fprintf(js->li->error_file, "line %u: %s\n",
-            (unsigned int) report->lineno, message);
-    }
+    language_error(js->li, "line %u: %s\n", (unsigned int) report->lineno, message);
 }
 
 static bool initialize_js(language_t*li, size_t mem_size)
@@ -188,9 +182,7 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
         return JS_FALSE;
     }
 
-    dbg("[js] callback (1)");
     function_t*f = dict_lookup(js->jsfunction_to_function, func);
-    dbg("[js] callback (2)");
 
     if(!f) {
         language_error(js->li, "Internal error: Javascript tried to call native function %p (%d args), which we've never seen before.", func, argc);
@@ -241,6 +233,9 @@ static bool compile_script_js(language_t*li, const char*script)
     
     dbg("[js] compiling script %p %p", script, js);
     ok = JS_EvaluateScript(js->cx, js->global, script, strlen(script), "__main__", 1, &rval);
+    if(!ok) {
+        language_error(li, "Couldn't compile javascript program\n");
+    }
     return ok;
 }
 

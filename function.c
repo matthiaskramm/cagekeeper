@@ -404,6 +404,10 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             assert(0);
         break;
     }
+#ifdef DEBUG
+    printf("[ffi] call returning: "); value_dump(ret);
+    printf("\n");
+#endif
     function_signature_destroy(sig);
     return ret;
 }

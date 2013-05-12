@@ -79,7 +79,6 @@ clean:
 	rm -f *.so *.o testpython spec/run spec/run.o
 
 test:
-	./testjs
 	./run_specs -a
 
 .PHONY: all clean

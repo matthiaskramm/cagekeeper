@@ -7,15 +7,18 @@
 #include <errno.h>
 #include <sys/prctl.h>
 #include <sys/signal.h>
+#include <sys/mman.h>
 #include <asm/unistd_32.h>
 #define __USE_GNU
 #include <dlfcn.h>
 
 #include "settings.h"
+#include "util.h"
 
 #define CATCH_SIGNALS
 #define HIJACK_SYSCALLS
-#define LOG_SYSCALLS
+//#define LOG_SYSCALLS
+//#define LOG_SYSCALL_RETURN_VALUES
 #define REFUSE_UNSUPPORTED
 
 #ifdef HIJACK_SYSCALLS
@@ -55,6 +58,9 @@ static ssize_t my_write(int handle, void*data, int length) {
 
 static int32_t current_brk = 0;
 static int32_t max_brk = 0;
+
+static int32_t current_mmap = 0;
+static int32_t max_mmap = 0;
 
 static int direct_brk(int addr)
 {
@@ -115,6 +121,12 @@ static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
     if(eax == __NR_open) {
         dbg_write("\topen: %s\n", (char*)ebx);
     }
+}
+
+static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax) {
+    dbg_write("syscall return: eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
+            eax, ebx, ecx, edx, esi, edi);
+    dbg_write("mem limits: %08x-%08x\n", current_brk, max_brk);
 }
 
 static void (*syscall_log)() = _syscall_log;
@@ -200,15 +212,11 @@ void _dummy(void) {
         /* consult blacklist */
         "cmp $197, %%eax\n" // fstat64
         "je refuse\n"
-        "cmp $192, %%eax\n" // mmap2
-        "je refuse\n"
-        "cmp $175, %%eax\n" // rt_sigprocmask
-        "je refuse\n"
+        "cmp $192, %%eax\n" // mmap
+        "je fake_mmap\n"
         "cmp $270, %%eax\n" // tgkill
         "je refuse\n"
         "cmp $174, %%eax\n" // rt_sigaction
-        "je refuse\n"
-        "cmp $126, %%eax\n" // sigprocmask
         "je refuse\n"
         "cmp $5, %%eax\n "  // open
         "je refuse\n"
@@ -222,9 +230,31 @@ void _dummy(void) {
         "je forward\n"
         "cmp $45, %%eax\n"  // brk
         "je fake_brk\n"
+        
+        "cmp $175, %%eax\n" // rt_sigprocmask
+        "je refuse\n"
+        "cmp $126, %%eax\n" // sigprocmask
+        "je refuse\n"
         "jmp refuse\n"
 
+"fake_mmap:\n"
+        "test %%ebx, %%ebx\n" // ebx: address
+        "jnz refuse\n"
+        "mov current_mmap, %%eax\n"
+        "push %%ebx\n"
+        "mov %%eax, %%ebx\n"
+        "add %%ecx, %%ebx\n"  // ecx: length
+        "cmp max_mmap, %%ebx\n"
+        "jle fake_mmap_below_max\n"
+        "pop %%ebx\n"
+        "jmp refuse\n"        // out of memory
+"fake_mmap_below_max:\n"
+        "mov %%ebx, current_mmap\n"
+        "pop %%ebx\n"
+        "jmp exit\n"
+        
 "fake_brk:\n"
+        "push %%ebx\n"
         "cmp current_brk, %%ebx\n"
         "jle fake_brk_done\n"
         "cmp max_brk, %%ebx\n"
@@ -234,6 +264,7 @@ void _dummy(void) {
         "mov %%ebx, current_brk\n"
 "fake_brk_done:\n"
         "mov current_brk, %%eax\n"
+        "pop %%ebx\n"
         "jmp exit\n"
 
 "refuse:\n"
@@ -255,6 +286,27 @@ void _dummy(void) {
         "int $0x080\n"
 
 "exit:\n"
+
+#ifdef LOG_SYSCALLS
+#ifdef LOG_SYSCALL_RETURN_VALUES
+	"pushl %%ebp\n"
+	"pushl %%eax\n"
+	"pushl %%ebx\n"
+	"pushl %%ecx\n"
+	"pushl %%edx\n"
+	"pushl %%esi\n"
+	"pushl %%edi\n"
+        "call _syscall_log_return_value\n"
+	"popl %%edi\n"
+	"popl %%esi\n"
+	"popl %%edx\n"
+	"popl %%ecx\n"
+	"popl %%ebx\n"
+	"popl %%eax\n"
+	"popl %%ebp\n"
+#endif
+#endif
+
         "ret\n"
         : 
 	: "m" (syscall_log),
@@ -286,10 +338,11 @@ static void hijack_linux_gate(void) {
 static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
     Dl_info info; 
-    dbg_write("signal %d, at %p\n", signal, info.dli_saddr);
+    dbg_write("signal %d, memory access to addr: %p [%02x]\n", signal, siginfo->si_addr);
     void*here;
     void**stack_top = &here;
     int i = 0;
+
     for(i=0;i<256;i++) {
         if(dladdr(*stack_top, &info) && info.dli_saddr && info.dli_sname) {
             dbg_write("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
@@ -311,11 +364,6 @@ void seccomp_lockdown()
     sigaction(6, &sig, NULL);
 #endif
 
-#ifdef HIJACK_SYSCALLS
-    errno_location = __errno_location();
-    hijack_linux_gate();
-#endif
-
     current_brk = direct_brk(0);
     max_brk = current_brk + config_maxmem;
     int ret = direct_brk(max_brk);
@@ -323,6 +371,15 @@ void seccomp_lockdown()
         fprintf(stderr, "Could not expand process data segment (brk)\n");
         _exit(1);
     }
+
+    current_mmap = (int)mmap(NULL, config_maxmem, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
+    max_mmap = current_mmap + config_maxmem;
+    dbg("extra process space: brk: %p - %p, mmap: %p - %p\n", (void*)current_brk, (void*)max_brk, (void*)current_mmap, (void*)max_mmap);
+
+#ifdef HIJACK_SYSCALLS
+    errno_location = __errno_location();
+    hijack_linux_gate();
+#endif
 
     ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
     if(ret) {

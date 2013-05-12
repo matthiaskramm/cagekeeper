@@ -171,6 +171,7 @@ static VALUE ruby_function_proxy(VALUE self, VALUE _args)
         value_destroy(args);
         volatile VALUE r = value_to_ruby(ret);
         value_destroy(ret);
+        dbg("[rb] returning from callback");
         return r;
     } else {
         dbg("[ruby] retrieving constant %s (%s)", rb_id2name(id), type_to_string(value->type));

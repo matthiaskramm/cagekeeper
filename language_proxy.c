@@ -264,14 +264,20 @@ static bool compile_script_proxy(language_t*li, const char*script)
 
     proxy->in_call = true;
     ret = process_callbacks(li, &timeout);
-    if(!ret)
+    if(!ret) {
+        if(!timeout.tv_sec && !timeout.tv_usec) {
+            li->timeout = true;
+            language_error(li, "Timeout while compiling\n");
+        }
         return false;
+    }
     proxy->in_call = false;
 
     if(!read_with_timeout(proxy->fd_r, &ret, 1, &timeout)) {
         if(!timeout.tv_sec && !timeout.tv_usec) {
             // TODO: verify that select does indeed set these values to 0 on timeout
             li->timeout = true;
+            language_error(li, "Timeout while compiling.\n");
         }
         return false;
     }
@@ -319,15 +325,20 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
 
     proxy->in_call = true;
     ret = process_callbacks(li, &timeout);
-    if(!ret)
+    if(!ret) {
+        if(!timeout.tv_sec && !timeout.tv_usec) {
+            li->timeout = true;
+            language_error(li, "Timeout while calling function %s\n", name);
+        }
         return NULL;
+    }
     proxy->in_call = false;
 
     value_t*value = read_value(proxy->fd_r, &timeout);
     if(!value) {
         if(!timeout.tv_sec && !timeout.tv_usec) {
-            // TODO: verify that select does indeed set these values to 0 on timeout
             li->timeout = true;
+            language_error(li, "Timeout while calling function %s.\n", name);
         }
         return NULL;
     }
@@ -496,7 +507,7 @@ static bool spawn_child(language_t*li)
         }
 
         seccomp_lockdown();
-        printf("[child] running in seccomp mode\n");
+        printf("");
 
         child_loop(li);
         _exit(0);
@@ -520,11 +531,11 @@ static void destroy_proxy(language_t* li)
     int status = 0;
     int ret = waitpid(proxy->child_pid, &status, WNOHANG);
     if(WIFSIGNALED(status)) {
-        printf("%08x signal=%d\n", ret, WTERMSIG(status));
+        dbg("%08x signal=%d\n", ret, WTERMSIG(status));
     } else if(WIFEXITED(status)) {
-        printf("%08x exit=%d\n", ret, WEXITSTATUS(status));
+        dbg("%08x exit=%d\n", ret, WEXITSTATUS(status));
     } else {
-        printf("%08x unknown exit reason. status=%d\n", ret, status);
+        dbg("%08x unknown exit reason. status=%d\n", ret, status);
     }
     free(proxy);
     free(li);
