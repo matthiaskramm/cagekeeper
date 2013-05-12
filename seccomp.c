@@ -14,11 +14,12 @@
 
 #include "settings.h"
 #include "util.h"
+#include "ptmalloc/malloc-2.8.3.h"
 
 #define CATCH_SIGNALS
 #define HIJACK_SYSCALLS
-#define LOG_SYSCALLS
-#define LOG_SYSCALL_RETURN_VALUES
+//#define LOG_SYSCALLS
+//#define LOG_SYSCALL_RETURN_VALUES
 #define REFUSE_UNSUPPORTED
 
 #define SAVE_REGS \
@@ -118,22 +119,56 @@ char* dbg_write(const char*format, ...)
 static int32_t current_brk = 0;
 static int32_t max_brk = 0;
 
-static int32_t current_mmap = 0;
-static int32_t max_mmap = 0;
+static void*msp_ptr = NULL;
+static size_t msp_size = 0;
+static mspace msp;
+
+static void init_memory(size_t size)
+{
+    msp_ptr  = mmap(NULL, size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
+    if(!msp_ptr) {
+        dbg_write("OUT OF MEMORY\n");
+        _exit(7);
+    }
+    msp_size = size;
+    msp = create_mspace_with_base(msp_ptr, msp_size, 0);
+    printf("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
+}
 
 static int dealloc_memory(int addr)
 {
+    mspace_free(msp, (void*)addr);
     return 0;
+}
+
+static void oom()
+{
+    dbg_write("OUT OF MEMORY\n");
+    _exit(7);
 }
 
 static int alloc_memory(int size)
 {
-    if(size + current_mmap > max_mmap) {
-        dbg_write("OUT OF MEMORY\n", size);
-        _exit(7);
+    if(size == 1<<20) {
+        /* spidermonkey does "trial and error" allocations until
+           a piece of memory is aligned. See js/src/jsgcchunk.cpp. 
+           To prevent that, we proactively aligned memory.
+         */
+        void*ptr = mspace_memalign(msp, size, size);
+        if(!ptr) {
+            oom();
+        }
+        memset(ptr, 0, size);
+        dbg("allocating %d bytes of aligned memory: %08x\n", size, ptr);
+        return ptr;
     }
-    dbg("allocating %d bytes of memory: %08x\n", size, current_mmap);
-    return current_mmap += size;
+
+    void*ptr = mspace_calloc(msp, size, 1);
+    if(!ptr) {
+        oom();
+    }
+    dbg("allocating %d bytes of memory: %08x\n", size, ptr);
+    return (int)ptr;
 }
 
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
@@ -145,8 +180,8 @@ static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
 }
 
 static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax) {
-    dbg_write("syscall return: eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
-            eax, ebx, ecx, edx, esi, edi);
+    dbg_write("syscall return: eax=%d eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
+            eax, eax, ebx, ecx, edx, esi, edi);
 }
 
 static void (*syscall_log)() = _syscall_log;
@@ -219,7 +254,9 @@ void _dummy(void) {
         "cmp $197, %%eax\n" // fstat64
         "je refuse\n"
         "cmp $192, %%eax\n" // mmap2
-        "je fake_mmap\n"
+        "je fake_mmap2\n"
+        "cmp $91, %%eax\n"  // munmap
+        "je fake_munmap\n"
         "cmp $270, %%eax\n" // tgkill
         "je refuse\n"
         "cmp $174, %%eax\n" // rt_sigaction
@@ -245,16 +282,28 @@ void _dummy(void) {
         "je refuse\n"
         "jmp refuse\n"
 
-"fake_mmap:\n"
-        "test %%ebx, %%ebx\n" // ebx: address
-        "jnz refuse\n"
-        "mov %%ecx, %%eax\n"
+"fake_munmap:\n"
 	"pushl %%ebx\n"
 	"pushl %%ecx\n"
 	"pushl %%edx\n"
-        "pushl %%eax\n"
-        "call alloc_memory\n"
-	"add $4, %%esp\n"
+        " pushl %%ebx\n"
+        // notice: we ignore the size argument
+        " call dealloc_memory\n"
+	" add $4, %%esp\n"
+	"popl %%edx\n"
+	"popl %%ecx\n"
+        "popl %%ebx\n"
+        "jmp exit\n"
+
+"fake_mmap2:\n"
+        "test %%ebx, %%ebx\n" // ebx: address
+        "jnz refuse\n"
+	"pushl %%ebx\n"
+	"pushl %%ecx\n"
+	"pushl %%edx\n"
+        " pushl %%ecx\n"
+        " call alloc_memory\n"
+	" add $4, %%esp\n"
 	"popl %%edx\n"
 	"popl %%ecx\n"
         "popl %%ebx\n"
@@ -351,6 +400,12 @@ static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 static struct sigaction sig;
 #endif
 
+void*sandbox_sbrk(intptr_t len)
+{
+    dbg_write("Out of memory\n");
+    _exit(5);
+}
+
 void seccomp_lockdown()
 {
 #ifdef CATCH_SIGNALS
@@ -368,9 +423,9 @@ void seccomp_lockdown()
         _exit(1);
     }
 
-    current_mmap = (int)mmap(NULL, config_maxmem, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
-    max_mmap = current_mmap + config_maxmem;
-    dbg("extra process space: brk: %p - %p, mmap: %p - %p\n", (void*)current_brk, (void*)max_brk, (void*)current_mmap, (void*)max_mmap);
+    init_memory(config_maxmem);
+
+    dbg("extra process space: brk: %p - %p\n", (void*)current_brk, (void*)max_brk);
 
 #ifdef HIJACK_SYSCALLS
     errno_location = __errno_location();
