@@ -17,9 +17,27 @@
 
 #define CATCH_SIGNALS
 #define HIJACK_SYSCALLS
-//#define LOG_SYSCALLS
-//#define LOG_SYSCALL_RETURN_VALUES
+#define LOG_SYSCALLS
+#define LOG_SYSCALL_RETURN_VALUES
 #define REFUSE_UNSUPPORTED
+
+#define SAVE_REGS \
+	"pushl %%ebp\n" \
+	"pushl %%eax\n" \
+	"pushl %%ebx\n" \
+	"pushl %%ecx\n" \
+	"pushl %%edx\n" \
+	"pushl %%esi\n" \
+	"pushl %%edi\n"
+
+#define RESTORE_REGS \
+	"popl %%edi\n" \
+	"popl %%esi\n" \
+	"popl %%edx\n" \
+	"popl %%ecx\n" \
+	"popl %%ebx\n" \
+	"popl %%eax\n" \
+	"popl %%ebp\n"
 
 #ifdef HIJACK_SYSCALLS
 static ssize_t my_write(int handle, void*data, int length) {
@@ -28,25 +46,13 @@ static ssize_t my_write(int handle, void*data, int length) {
 
     int ret;
     asm(
-	"pushl %%ebp\n"
-	"pushl %%eax\n"
-	"pushl %%ebx\n"
-	"pushl %%ecx\n"
-	"pushl %%edx\n"
-	"pushl %%esi\n"
-	"pushl %%edi\n"
+        SAVE_REGS
         "mov %1, %%edx\n" // len
         "mov %2, %%ecx\n" // message
         "mov %3, %%ebx\n" // fd
         "mov %4, %%eax\n" // sys_write
         "int $0x080\n"
-	"popl %%edi\n"
-	"popl %%esi\n"
-	"popl %%edx\n"
-	"popl %%ecx\n"
-	"popl %%ebx\n"
-	"popl %%eax\n"
-	"popl %%ebp\n"
+        RESTORE_REGS
         : "=ra" (ret)
         : "m" (length),
           "m" (data),
@@ -55,12 +61,6 @@ static ssize_t my_write(int handle, void*data, int length) {
         );
     return ret;
 }
-
-static int32_t current_brk = 0;
-static int32_t max_brk = 0;
-
-static int32_t current_mmap = 0;
-static int32_t max_mmap = 0;
 
 static int direct_brk(int addr)
 {
@@ -115,6 +115,27 @@ char* dbg_write(const char*format, ...)
 #endif
 }
 
+static int32_t current_brk = 0;
+static int32_t max_brk = 0;
+
+static int32_t current_mmap = 0;
+static int32_t max_mmap = 0;
+
+static int dealloc_memory(int addr)
+{
+    return 0;
+}
+
+static int alloc_memory(int size)
+{
+    if(size + current_mmap > max_mmap) {
+        dbg_write("OUT OF MEMORY\n", size);
+        _exit(7);
+    }
+    dbg("allocating %d bytes of memory: %08x\n", size, current_mmap);
+    return current_mmap += size;
+}
+
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
     dbg_write("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, ebx, ecx, edx, esi, edi);
@@ -126,7 +147,6 @@ static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
 static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax) {
     dbg_write("syscall return: eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, ebx, ecx, edx, esi, edi);
-    dbg_write("mem limits: %08x-%08x\n", current_brk, max_brk);
 }
 
 static void (*syscall_log)() = _syscall_log;
@@ -152,14 +172,7 @@ void _dummy(void) {
         //"movl (%%ebp), %%ebp\n" // ignore the gcc prologue
         //
 #ifdef LOG_SYSCALLS
-        /* log system call */    
-	"pushl %%ebp\n"
-	"pushl %%eax\n"
-	"pushl %%ebx\n"
-	"pushl %%ecx\n"
-	"pushl %%edx\n"
-	"pushl %%esi\n"
-	"pushl %%edi\n"
+        SAVE_REGS
 
 #ifdef NATIVE_WRITE
 	"pushl %%eax\n"
@@ -198,21 +211,14 @@ void _dummy(void) {
 #else
         "call _syscall_log\n"
 #endif
-
-	"popl %%edi\n"
-	"popl %%esi\n"
-	"popl %%edx\n"
-	"popl %%ecx\n"
-	"popl %%ebx\n"
-	"popl %%eax\n"
-	"popl %%ebp\n"
+        RESTORE_REGS
 #endif
 
 #ifdef REFUSE_UNSUPPORTED
         /* consult blacklist */
         "cmp $197, %%eax\n" // fstat64
         "je refuse\n"
-        "cmp $192, %%eax\n" // mmap
+        "cmp $192, %%eax\n" // mmap2
         "je fake_mmap\n"
         "cmp $270, %%eax\n" // tgkill
         "je refuse\n"
@@ -228,6 +234,8 @@ void _dummy(void) {
         "je forward\n"
         "cmp $4, %%eax\n"   // write
         "je forward\n"
+        "cmp $119, %%eax\n" // sigreturn
+        "je forward\n"
         "cmp $45, %%eax\n"  // brk
         "je fake_brk\n"
         
@@ -240,17 +248,16 @@ void _dummy(void) {
 "fake_mmap:\n"
         "test %%ebx, %%ebx\n" // ebx: address
         "jnz refuse\n"
-        "mov current_mmap, %%eax\n"
-        "push %%ebx\n"
-        "mov %%eax, %%ebx\n"
-        "add %%ecx, %%ebx\n"  // ecx: length
-        "cmp max_mmap, %%ebx\n"
-        "jle fake_mmap_below_max\n"
-        "pop %%ebx\n"
-        "jmp refuse\n"        // out of memory
-"fake_mmap_below_max:\n"
-        "mov %%ebx, current_mmap\n"
-        "pop %%ebx\n"
+        "mov %%ecx, %%eax\n"
+	"pushl %%ebx\n"
+	"pushl %%ecx\n"
+	"pushl %%edx\n"
+        "pushl %%eax\n"
+        "call alloc_memory\n"
+	"add $4, %%esp\n"
+	"popl %%edx\n"
+	"popl %%ecx\n"
+        "popl %%ebx\n"
         "jmp exit\n"
         
 "fake_brk:\n"
@@ -289,21 +296,9 @@ void _dummy(void) {
 
 #ifdef LOG_SYSCALLS
 #ifdef LOG_SYSCALL_RETURN_VALUES
-	"pushl %%ebp\n"
-	"pushl %%eax\n"
-	"pushl %%ebx\n"
-	"pushl %%ecx\n"
-	"pushl %%edx\n"
-	"pushl %%esi\n"
-	"pushl %%edi\n"
+        SAVE_REGS
         "call _syscall_log_return_value\n"
-	"popl %%edi\n"
-	"popl %%esi\n"
-	"popl %%edx\n"
-	"popl %%ecx\n"
-	"popl %%ebx\n"
-	"popl %%eax\n"
-	"popl %%ebp\n"
+        RESTORE_REGS
 #endif
 #endif
 
@@ -337,8 +332,9 @@ static void hijack_linux_gate(void) {
 #ifdef CATCH_SIGNALS
 static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
+    my_write(1, "signal\n", 7);
     Dl_info info; 
-    dbg_write("signal %d, memory access to addr: %p [%02x]\n", signal, siginfo->si_addr);
+    dbg_write("signal %d, memory access to addr: %p\n", signal);
     void*here;
     void**stack_top = &here;
     int i = 0;

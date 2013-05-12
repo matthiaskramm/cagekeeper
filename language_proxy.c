@@ -527,15 +527,25 @@ static void destroy_proxy(language_t* li)
 
     language_t*old = proxy->old;
 
-    kill(proxy->child_pid, SIGKILL);
     int status = 0;
-    int ret = waitpid(proxy->child_pid, &status, WNOHANG);
+    int ret = waitpid(proxy->child_pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
+
+    if(ret == 0) {
+#ifdef PROCSTAT
+        char buffer[256];
+        sprintf(buffer, "procstat /proc/%d/stat", proxy->child_pid);
+        system(buffer);
+#endif
+        dbg("killing sandbox process %d\n", proxy->child_pid);
+        kill(proxy->child_pid, SIGKILL);
+        ret = waitpid(proxy->child_pid, &status, 0);
+    }
     if(WIFSIGNALED(status)) {
-        dbg("%08x signal=%d\n", ret, WTERMSIG(status));
+        dbg("%08x %08x signal=%d\n", ret, status, WTERMSIG(status));
     } else if(WIFEXITED(status)) {
-        dbg("%08x exit=%d\n", ret, WEXITSTATUS(status));
+        dbg("%08x %08x exit=%d\n", ret, status, WEXITSTATUS(status));
     } else {
-        dbg("%08x unknown exit reason. status=%d\n", ret, status);
+        dbg("%08x %08x unknown exit reason. status=%d\n", ret, status, status);
     }
     free(proxy);
     free(li);
@@ -564,7 +574,7 @@ language_t* proxy_new(language_t*old)
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
     proxy->li = li;
     proxy->old = old;
-    proxy->timeout = 10;
+    proxy->timeout = config_maxtime;
 
     if(!spawn_child(li)) {
         fprintf(stderr, "Couldn't spawn child process\n");

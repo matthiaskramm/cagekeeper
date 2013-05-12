@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-//#define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
 #include <assert.h>
