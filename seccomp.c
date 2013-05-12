@@ -132,11 +132,12 @@ static void init_memory(size_t size)
     }
     msp_size = size;
     msp = create_mspace_with_base(msp_ptr, msp_size, 0);
-    printf("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
+    dbg("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
 }
 
 static int dealloc_memory(int addr)
 {
+    dbg("deallocating memory: %08x\n", addr);
     mspace_free(msp, (void*)addr);
     return 0;
 }
@@ -156,7 +157,8 @@ static int alloc_memory(int size)
          */
         void*ptr = mspace_memalign(msp, size, size);
         if(!ptr) {
-            oom();
+            dbg_write("out of memory while allocating %d aligned bytes\n", size);
+            return -1;
         }
         memset(ptr, 0, size);
         dbg("allocating %d bytes of aligned memory: %08x\n", size, ptr);
@@ -165,7 +167,8 @@ static int alloc_memory(int size)
 
     void*ptr = mspace_calloc(msp, size, 1);
     if(!ptr) {
-        oom();
+        dbg_write("out of memory while allocating %d bytes\n", size);
+        return -1;
     }
     dbg("allocating %d bytes of memory: %08x\n", size, ptr);
     return (int)ptr;
@@ -402,8 +405,8 @@ static struct sigaction sig;
 
 void*sandbox_sbrk(intptr_t len)
 {
-    dbg_write("Out of memory\n");
-    _exit(5);
+    dbg_write("Out of memory (not allowing sbrk)\n");
+    return NULL;
 }
 
 void seccomp_lockdown()
@@ -416,14 +419,14 @@ void seccomp_lockdown()
 #endif
 
     current_brk = direct_brk(0);
-    max_brk = current_brk + config_maxmem;
+    max_brk = current_brk + (config_maxmem * 2);
     int ret = direct_brk(max_brk);
     if(ret < max_brk) {
         fprintf(stderr, "Could not expand process data segment (brk)\n");
         _exit(1);
     }
 
-    init_memory(config_maxmem);
+    init_memory(config_maxmem * 2);
 
     dbg("extra process space: brk: %p - %p\n", (void*)current_brk, (void*)max_brk);
 

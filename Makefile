@@ -21,6 +21,10 @@ JS_CFLAGS=-I/usr/include/js/ -I/usr/local/include/js/
 JS_LDFLAGS=
 JS_LIBS=-lmozjs185
 
+JS_CFLAGS =-I/home/sources/js-1.8.5/js/src/
+JS_LDFLAGS=
+JS_LIBS=/home/sources/js-1.8.5/js/src/libjs_static.a
+
 LDFLAGS=$(RUBY_LDFLAGS) $(PYTHON_LDFLAGS) $(LUA_LDFLAGS) $(JS_LDFLAGS) $(FFI_LDFLAGS) -Wl,--export-dynamic 
 LIBS=$(RUBY_LIBS) $(PYTHON_LIBS) $(LUA_LIBS) $(JS_LIBS) $(FFI_LIBS) -lstdc++
 
