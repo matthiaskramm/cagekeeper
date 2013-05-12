@@ -266,6 +266,15 @@ value_t* cfunction_call(value_t*self, value_t*_args)
         return NULL;
     }
 
+    if(_args->type != TYPE_ARRAY) {
+        fprintf(stderr, "function parameters must be an array\n");
+        return NULL;
+    }
+    if(sig->num_params != _args->length) {
+        fprintf(stderr, "wrong number of arguments: expected %d, got %d\n", sig->num_params, _args->length);
+        return NULL;
+    }
+
 #ifdef DEBUG
     printf("[ffi] ");function_signature_dump(sig);
     printf("[ffi] args: ");value_dump(_args);printf("\n");
@@ -275,6 +284,8 @@ value_t* cfunction_call(value_t*self, value_t*_args)
         float f32;
         bool b;
         void*ptr;
+#define TMP_STR_SIZE 32
+        char tmp_str[TMP_STR_SIZE];
     } args_data[_args->length+1], ret_raw;
 
     void**ffi_args = alloca(sizeof(void*) * (_args->length + 1));
@@ -286,19 +297,23 @@ value_t* cfunction_call(value_t*self, value_t*_args)
     for(i=0;i<_args->length;i++) {
         value_t*o = _args->data[i];
 
-        ffi_type*t = atypes[i+1];
+        type_t t = sig->param[i];
         ffi_args[i+1] = &args_data[i+1];
 
         bool error = false;
         switch(_args->data[i]->type) {
             case TYPE_FLOAT32: {
                 float v = o->f32;
-                if(t == &ffi_type_float) {
+                if(t == TYPE_FLOAT32) {
                     args_data[i+1].f32 = v;
-                } else if(t == &ffi_type_sint32) {
+                } else if(t == TYPE_INT32) {
                     args_data[i+1].i32 = (int)v;
-                } else if(t == &ffi_type_uint8) {
+                } else if(t == TYPE_BOOLEAN) {
                     args_data[i+1].b = (int)v;
+                } else if(t == TYPE_STRING) {
+                    char*str = args_data[i+i].tmp_str;
+                    snprintf(str, TMP_STR_SIZE, "%f", v);
+                    args_data[i+1].ptr = str;
                 } else {
                     error = true;
                 }
@@ -306,12 +321,16 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             break;
             case TYPE_INT32: {
                 int v = o->i32;
-                if(t == &ffi_type_float) {
+                if(t == TYPE_FLOAT32) {
                     args_data[i+1].f32 = v;
-                } else if(t == &ffi_type_sint32) {
+                } else if(t == TYPE_INT32) {
                     args_data[i+1].i32 = v;
-                } else if(t == &ffi_type_uint8) {
+                } else if(t == TYPE_BOOLEAN) {
                     args_data[i+1].b = v;
+                } else if(t == TYPE_STRING) {
+                    char*str = args_data[i+i].tmp_str;
+                    snprintf(str, TMP_STR_SIZE, "%d", v);
+                    args_data[i+1].ptr = str;
                 } else {
                     error = true;
                 }
@@ -319,12 +338,14 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             break;
             case TYPE_BOOLEAN: {
                 bool v = o->b;
-                if(t == &ffi_type_float) {
+                if(t == TYPE_FLOAT32) {
                     args_data[i+1].f32 = v;
-                } else if(t == &ffi_type_sint32) {
+                } else if(t == TYPE_INT32) {
                     args_data[i+1].i32 = v;
-                } else if(t == &ffi_type_uint8) {
+                } else if(t == TYPE_BOOLEAN) {
                     args_data[i+1].b = v;
+                } else if(t == TYPE_STRING) {
+                    args_data[i+1].ptr = v?"true":"false";
                 } else {
                     error = true;
                 }
@@ -332,7 +353,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             break;
             case TYPE_STRING: {
                 char* v = o->str;
-                if(t == &ffi_type_pointer) {
+                if(t == TYPE_STRING) {
                     args_data[i+1].ptr = v;
                 } else {
                     error = true;
@@ -340,7 +361,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             }
             break;
             case TYPE_VOID: {
-                if(t == &ffi_type_void) {
+                if(t == TYPE_VOID) {
                     args_data[i+1].ptr = NULL;
                 } else {
                     error = true;
@@ -349,8 +370,12 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             break;
             case TYPE_ARRAY: {
                 value_t* v = o;
-                if(t == &ffi_type_pointer) {
+                if(t == TYPE_ARRAY) {
                     args_data[i+1].ptr = v;
+                } if(t == TYPE_STRING) {
+                    char*str = args_data[i+i].tmp_str;
+                    snprintf(str, TMP_STR_SIZE, "<array, %d items>", v->length);
+                    args_data[i+1].ptr = str;
                 } else {
                     error = true;
                 }
@@ -622,6 +647,9 @@ int value_to_int(value_t*v)
         break;
         case TYPE_BOOLEAN:
             return v->b;
+        break;
+        case TYPE_STRING:
+            return atoi(v->str);
         break;
         default:
             return -1;

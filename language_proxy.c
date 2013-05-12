@@ -229,6 +229,11 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
                     return false;
                 }
                 value_t*ret = function->call(function, args);
+                if(!ret) {
+                    value_destroy(args);
+                    free(name);
+                    return false;
+                }
                 write_value(proxy->fd_w, ret);
                 value_destroy(ret);
                 value_destroy(args);
@@ -507,7 +512,7 @@ static bool spawn_child(language_t*li)
         }
 
         seccomp_lockdown();
-        printf("");
+        printf("\n");fflush(stdout);
 
         child_loop(li);
         _exit(0);

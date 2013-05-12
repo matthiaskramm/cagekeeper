@@ -192,6 +192,10 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
     value_t* args = js_argv_to_args(js->li, cx, argc, argv);
     value_t* value = f->call(f, args);
     value_destroy(args);
+    if(value == NULL) {
+        language_error(js->li, "Failed calling function %p", func);
+        return JS_FALSE;
+    }
 
     JS_SET_RVAL(cx, vp, value_to_jsval(cx, value));
     value_destroy(value);
