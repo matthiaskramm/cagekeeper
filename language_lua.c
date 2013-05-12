@@ -81,8 +81,7 @@ static void dump_stack(lua_State *l) {
 static void show_error(language_t*li, lua_State *l)
 {
     const char *s = lua_tolstring(l, -1, NULL);
-    printf("%s\n", s);
-
+    dbg_write("%s", s);
     if(li->error_file) {
         fprintf(li->error_file, "%s\n", s);
     }
@@ -143,7 +142,7 @@ static void push_value(lua_State*l, value_t*value)
         case TYPE_ARRAY: {
             lua_newtable(l);
             for(i=0;i<value->length;i++) {
-                lua_pushinteger(l, i+1);
+                lua_pushinteger(l, i);
                 push_value(l, value->data[i]);
                 lua_settable(l, -3);
             }
@@ -178,7 +177,7 @@ static value_t* lua_to_value(language_t*li, int idx)
         value_t*array = array_new();
         int i;
         for(i=0;;i++) {
-            lua_pushinteger(l, i+1);
+            lua_pushinteger(l, i);
             lua_gettable(l, idx<0?idx-1:idx);
             if(lua_isnil(l, -1)) {
                 lua_pop(l, 1);
