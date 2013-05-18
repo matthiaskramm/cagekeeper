@@ -10,6 +10,7 @@
 #include <sys/signal.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <sys/resource.h>
 #include <asm/unistd_32.h>
 #define __USE_GNU
 #include <dlfcn.h>
@@ -20,13 +21,14 @@
 
 #include "settings.h"
 #include "util.h"
-#include "ptmalloc/malloc-2.8.3.h"
 
 #define CATCH_SIGNALS
 #define HIJACK_SYSCALLS
 //#define LOG_SYSCALLS
 //#define LOG_SYSCALL_RETURN_VALUES
-#define REFUSE_UNSUPPORTED
+//#define REFUSE_UNSUPPORTED
+
+#define MEM_PAD 65536
 
 #define SAVE_REGS \
 	"pushl %%ebp\n" \
@@ -69,22 +71,6 @@ static ssize_t my_write(int handle, void*data, int length) {
     return ret;
 }
 
-static int direct_brk(int addr)
-{
-    int ret;
-    asm(
-        "push %%ebx\n"
-        "mov %1, %%ebx\n" // addr
-        "mov %2, %%eax\n" // syscall nr
-        "int $0x080\n"
-        "pop %%ebx\n"
-        "mov %%eax, %0\n"
-        : "=r" (ret)
-        : "m" (addr),
-          "i" (__NR_brk));
-    return ret;
-}
-
 static void direct_exit(int code)
 {
     int ret;
@@ -122,66 +108,11 @@ void stdout_printf(const char*format, ...)
 #endif
 }
 
-static int32_t current_brk = 0;
-static int32_t max_brk = 0;
-
-static void*msp_ptr = NULL;
-static size_t msp_size = 0;
-static mspace msp;
-
-static void init_memory(size_t size)
-{
-    msp_ptr  = mmap(NULL, size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
-    if(!msp_ptr) {
-        stdout_printf("OUT OF MEMORY\n");
-        _exit(7);
-    }
-    msp_size = size;
-    msp = create_mspace_with_base(msp_ptr, msp_size, 0);
-    log_dbg("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
-}
-
-static int dealloc_memory(int addr)
-{
-    log_dbg("deallocating memory: %08x\n", addr);
-    mspace_free(msp, (void*)addr);
-    return 0;
-}
-
-static void oom()
-{
-    stdout_printf("OUT OF MEMORY\n");
-    _exit(7);
-}
-
-static int alloc_memory(int size)
-{
-    if(size == 1<<20) {
-        /* spidermonkey does "trial and error" allocations until
-           a piece of memory is aligned. See js/src/jsgcchunk.cpp. 
-           To prevent that, we proactively aligned memory.
-         */
-        void*ptr = mspace_memalign(msp, size, size);
-        if(!ptr) {
-            stdout_printf("out of memory while allocating %d aligned bytes\n", size);
-            return -1;
-        }
-        memset(ptr, 0, size);
-        log_dbg("allocating %d bytes of aligned memory: %08x\n", size, ptr);
-        return (int)ptr;
-    }
-
-    void*ptr = mspace_calloc(msp, size, 1);
-    if(!ptr) {
-        stdout_printf("out of memory while allocating %d bytes\n", size);
-        return -1;
-    }
-    log_dbg("allocating %d bytes of memory: %08x\n", size, ptr);
-    return (int)ptr;
-}
-
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) 
 {
+    if(eax == __NR_gettimeofday)
+        return;
+
     stdout_printf("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, ebx, ecx, edx, esi, edi);
     if(eax == __NR_open) {
@@ -189,8 +120,11 @@ static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax)
     }
 }
 
-static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax) 
+static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax, int ebp, int call) 
 {
+    if(call == __NR_gettimeofday)
+        return;
+
     stdout_printf("syscall return: eax=%d eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, eax, ebx, ecx, edx, esi, edi);
 }
@@ -206,6 +140,9 @@ static void _syscall_refuse(int edi, int esi, int edx, int ecx, int ebx, int eax
         log_warn("[sandbox] Refusing system call %d", eax);
         refused[eax] = true;
     }
+    if(eax == __NR_open) {
+        stdout_printf("refusing open: %s\n", (char*)ebx);
+    }
 }
 
 static void (*syscall_log)() = _syscall_log;
@@ -213,63 +150,14 @@ static int *errno_location;
 
 void do_syscall();
 
-#ifdef NATIVE_WRITE
+static void _dummy() {
 asm(
-".section .data\n"
-"sc_msg1: .string \"syscall \"\n"
-"sc_msg2: .string \"\\n\"\n"
-"digit: .string \".\"\n"
-"number: .string \"4294967296\"\n"
-"number_end: .string \"\\n\"\n"
-);
-#endif
-
-void _dummy(void) {
-    asm(
-
 "do_syscall:\n"
         //"movl (%%ebp), %%ebp\n" // ignore the gcc prologue
         //
 #ifdef LOG_SYSCALLS
         SAVE_REGS
-
-#ifdef NATIVE_WRITE
-	"pushl %%eax\n"
-        "mov $8, %%edx\n" // len
-        "mov $sc_msg1, %%ecx\n" // message
-        "mov $1, %%ebx\n" // fd
-        "mov $4, %%eax\n" // sys_write
-        "int $0x080\n"
-	"popl %%eax\n"
-
-	"mov $number_end, %%esi\n"
-	"xor %%edi, %%edi\n"
-        "jmp convert\n"
-"convert_loop:\n"
-	"dec %%esi\n"
-"convert:\n"
-	"xor %%edx, %%edx\n"
-	"mov $10, %%ecx\n"
-        "div %%ecx, %%eax\n"
-        "add $0x30, %%dl\n"
-        "mov %%dl, (%%esi)\n"
-	"inc %%edi\n"
-        "test %%eax, %%eax\n"
-        "jnz convert_loop\n"
-        "mov %%edi, %%edx\n" // len
-        "mov %%esi, %%ecx\n" // message
-        "mov $1, %%ebx\n" // fd
-        "mov $4, %%eax\n" // sys_write
-        "int $0x080\n"
-
-        "mov $1, %%edx\n" // len
-        "mov $sc_msg2, %%ecx\n" // message
-        "mov $1, %%ebx\n" // fd
-        "mov $4, %%eax\n" // sys_write
-        "int $0x080\n"
-#else
         "call _syscall_log\n"
-#endif
         RESTORE_REGS
 #endif
 
@@ -300,6 +188,10 @@ void _dummy(void) {
         "cmp $45, %%eax\n"  // brk
         "je fake_brk\n"
         "cmp $78, %%eax\n"  // gettimeofday
+        "je forward\n"
+        "cmp $13, %%eax\n"  // time
+        "je forward\n"
+        "cmp $146, %%eax\n "// writev
         "je forward\n"
         
         "cmp $175, %%eax\n" // rt_sigprocmask
@@ -367,11 +259,12 @@ void _dummy(void) {
 "forward:\n"
 #endif
 
+#ifdef LOG_SYSCALLS
+        "push %%eax\n"
+#endif
         /* make the syscall */
         "int $0x080\n"
-
 "exit:\n"
-
 #ifdef LOG_SYSCALLS
 #ifdef LOG_SYSCALL_RETURN_VALUES
         SAVE_REGS
@@ -379,13 +272,15 @@ void _dummy(void) {
         RESTORE_REGS
 #endif
 #endif
+#ifdef LOG_SYSCALLS
+        "add $4, %%esp\n"
+#endif
 
         "ret\n"
         : 
 	: "m" (syscall_log),
 	  "m" (errno_location)
-        );
-}
+);}
 
 static void*old_syscall_handler = (void*)0x12345678;
 
@@ -406,16 +301,19 @@ static void hijack_linux_gate(void) {
 #ifdef CATCH_SIGNALS
 static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
+    void*here;
     my_write(1, "signal\n", 7);
     Dl_info info; 
     stdout_printf("signal %d, memory access to addr: %p\n", signal);
-    void*here;
     void**stack_top = &here;
     int i = 0;
 
     for(i=0;i<256;i++) {
-        if(dladdr(*stack_top, &info) && info.dli_saddr && info.dli_sname) {
-            stdout_printf("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
+        if(dladdr(*stack_top, &info)) {
+            const char* symbol_name = info.dli_sname;
+            if(!symbol_name)
+                symbol_name = "?";
+            stdout_printf("[%3d] %08x %16s:%s\n", i, *stack_top, info.dli_fname, symbol_name);
         }
         stack_top++;
     }
@@ -425,14 +323,10 @@ static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 static struct sigaction sig;
 #endif
 
-void*sandbox_sbrk(intptr_t len)
-{
-    stdout_printf("Out of memory (not allowing sbrk)\n");
-    return NULL;
-}
-
 void seccomp_lockdown()
 {
+    setenv("MALLOC_CHECK_", "0", 1);
+
 #ifdef CATCH_SIGNALS
     sig.sa_sigaction = handle_signal;
     sig.sa_flags = SA_SIGINFO;
@@ -440,26 +334,15 @@ void seccomp_lockdown()
     sigaction(6, &sig, NULL);
 #endif
 
-    current_brk = direct_brk(0);
-    max_brk = current_brk + (config_maxmem * 2);
-    int ret = direct_brk(max_brk);
-    if(ret < max_brk) {
-        fprintf(stderr, "Could not expand process data segment (brk)\n");
-        _exit(1);
-    }
-
-    init_memory(config_maxmem * 2);
-
-    log_dbg("extra process space: brk: %p - %p\n", (void*)current_brk, (void*)max_brk);
+    struct rlimit rlimit;
+    rlimit.rlim_cur = rlimit.rlim_max = config_maxmem + MEM_PAD;
+    setrlimit(RLIMIT_DATA, &rlimit);
 
 #ifdef HIJACK_SYSCALLS
     errno_location = __errno_location();
     hijack_linux_gate();
 #endif
 
-#ifdef STRICT
-    ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
-#else
     /* offset k=0: syscall number
               k=4: architecture 
      */
@@ -468,33 +351,33 @@ void seccomp_lockdown()
         {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 1, jf: 0, k: AUDIT_ARCH_I386},
         {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_KILL},
 
-        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0},
-        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: __NR_gettimeofday},
-        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW},
+#define ALLOW_ANYARGS(syscall_nr) \
+        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0}, \
+        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: syscall_nr}, \
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW}
 
-        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0},
-        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: __NR_read},
-        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW},
+        ALLOW_ANYARGS(__NR_gettimeofday),
+        ALLOW_ANYARGS(__NR_time),
+        ALLOW_ANYARGS(__NR_read),
+        ALLOW_ANYARGS(__NR_write),
+        ALLOW_ANYARGS(__NR_writev),
+        ALLOW_ANYARGS(__NR_brk),
+        ALLOW_ANYARGS(__NR_mmap2),
+        ALLOW_ANYARGS(__NR_munmap),
+        ALLOW_ANYARGS(__NR_exit),
+        ALLOW_ANYARGS(__NR_read),
 
-        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0},
-        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: __NR_write},
-        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW},
-
-        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ERRNO | 0xffff},
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ERRNO | 1},
     };
     struct sock_fprog seccomp_prog = {
         len: sizeof(seccomp_filter) / sizeof(seccomp_filter[0]),
         filter: seccomp_filter,
     };
-    ret = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-    if(ret) {
-        perror("prctl");
-        _exit(1);
-    }
-    ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &seccomp_prog, 0, 0);
-#endif
 
-    if(ret) {
+    int ret = !prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+           && !prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &seccomp_prog, 0, 0);
+
+    if(!ret) {
         fprintf(stderr, "could not enter secure computation mode\n");
         perror("prctl");
         _exit(1);
