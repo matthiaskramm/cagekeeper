@@ -14,6 +14,10 @@
 #define __USE_GNU
 #include <dlfcn.h>
 
+#include <linux/filter.h>
+#include <linux/audit.h>
+#include "seccomp_defs.h"
+
 #include "settings.h"
 #include "util.h"
 #include "ptmalloc/malloc-2.8.3.h"
@@ -164,7 +168,7 @@ static int alloc_memory(int size)
         }
         memset(ptr, 0, size);
         log_dbg("allocating %d bytes of aligned memory: %08x\n", size, ptr);
-        return ptr;
+        return (int)ptr;
     }
 
     void*ptr = mspace_calloc(msp, size, 1);
@@ -174,17 +178,6 @@ static int alloc_memory(int size)
     }
     log_dbg("allocating %d bytes of memory: %08x\n", size, ptr);
     return (int)ptr;
-}
-
-static void emulate_gettimeofday(int tsc1, int tsc2, int edx, int ecx, int ebx)
-{
-    struct timeval* tv = (struct timeval*)ebx;
-    struct timezone* tz = (struct timeval*)ecx;
-    static int test = 0;
-    if(tv) {
-        tv->tv_sec = (test += 1);
-        tv->tv_usec = 0;
-    }
 }
 
 static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) 
@@ -307,28 +300,13 @@ void _dummy(void) {
         "cmp $45, %%eax\n"  // brk
         "je fake_brk\n"
         "cmp $78, %%eax\n"  // gettimeofday
-        "je fake_gettimeofday\n"
+        "je forward\n"
         
         "cmp $175, %%eax\n" // rt_sigprocmask
         "je refuse\n"
         "cmp $126, %%eax\n" // sigprocmask
         "je refuse\n"
         "jmp refuse\n"
-
-"fake_gettimeofday:\n"
-	"pushl %%ebx\n"
-	"pushl %%ecx\n"
-	"pushl %%edx\n"
-
-	"pushl %%edx\n"
-	"pushl %%eax\n"
-        "call emulate_gettimeofday\n"
-        "add $8, %%esp\n"
-
-	"popl %%edx\n"
-	"popl %%ecx\n"
-        "popl %%ebx\n"
-        "jmp exit\n"
 
 "fake_munmap:\n"
 	"pushl %%ebx\n"
@@ -425,10 +403,6 @@ static void hijack_linux_gate(void) {
 };
 #endif
 
-#ifndef SECCOMP_MODE_STRICT
-#define SECCOMP_MODE_STRICT 1
-#endif
-
 #ifdef CATCH_SIGNALS
 static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
@@ -483,7 +457,43 @@ void seccomp_lockdown()
     hijack_linux_gate();
 #endif
 
+#ifdef STRICT
     ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
+#else
+    /* offset k=0: syscall number
+              k=4: architecture 
+     */
+    struct sock_filter seccomp_filter[] = {
+        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 4},
+        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 1, jf: 0, k: AUDIT_ARCH_I386},
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_KILL},
+
+        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0},
+        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: __NR_gettimeofday},
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW},
+
+        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0},
+        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: __NR_read},
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW},
+
+        {code: BPF_LD+BPF_W+BPF_ABS,  jt: 0, jf: 0, k: 0},
+        {code: BPF_JMP+BPF_JEQ+BPF_K, jt: 0, jf: 1, k: __NR_write},
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ALLOW},
+
+        {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ERRNO | 0xffff},
+    };
+    struct sock_fprog seccomp_prog = {
+        len: sizeof(seccomp_filter) / sizeof(seccomp_filter[0]),
+        filter: seccomp_filter,
+    };
+    ret = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+    if(ret) {
+        perror("prctl");
+        _exit(1);
+    }
+    ret = prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &seccomp_prog, 0, 0);
+#endif
+
     if(ret) {
         fprintf(stderr, "could not enter secure computation mode\n");
         perror("prctl");

@@ -372,7 +372,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
                 value_t* v = o;
                 if(t == TYPE_ARRAY) {
                     args_data[i+1].ptr = v;
-                } if(t == TYPE_STRING) {
+                } else if(t == TYPE_STRING) {
                     char*str = args_data[i+i].tmp_str;
                     snprintf(str, TMP_STR_SIZE, "<array, %d items>", v->length);
                     args_data[i+1].ptr = str;
@@ -389,8 +389,8 @@ value_t* cfunction_call(value_t*self, value_t*_args)
         if(error) {
             fprintf(stderr, "Can't convert parameter %d from %s to %s\n",
                     i+1, 
-                    type_to_string(_args->data[i]->type), 
-                    type_to_string(sig->param[i]));
+                    type_to_string(o->type), 
+                    type_to_string(t));
             function_signature_destroy(sig);
             free(atypes);
             return NULL;
