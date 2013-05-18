@@ -26,7 +26,6 @@
 #define HIJACK_SYSCALLS
 //#define LOG_SYSCALLS
 //#define LOG_SYSCALL_RETURN_VALUES
-//#define REFUSE_UNSUPPORTED
 
 #define MEM_PAD 65536
 
@@ -159,107 +158,6 @@ asm(
         SAVE_REGS
         "call _syscall_log\n"
         RESTORE_REGS
-#endif
-
-#ifdef REFUSE_UNSUPPORTED
-        /* consult blacklist */
-        "cmp $197, %%eax\n" // fstat64
-        "je refuse\n"
-        "cmp $192, %%eax\n" // mmap2
-        "je fake_mmap2\n"
-        "cmp $91, %%eax\n"  // munmap
-        "je fake_munmap\n"
-        "cmp $270, %%eax\n" // tgkill
-        "je refuse\n"
-        "cmp $174, %%eax\n" // rt_sigaction
-        "je refuse\n"
-        "cmp $5, %%eax\n "  // open
-        "je refuse\n"
-        "cmp $172, %%eax\n" // prctl
-        "je forward\n"
-        "cmp $1, %%eax\n"   // exit
-        "je forward\n"
-        "cmp $3, %%eax\n"   // read
-        "je forward\n"
-        "cmp $4, %%eax\n"   // write
-        "je forward\n"
-        "cmp $119, %%eax\n" // sigreturn
-        "je forward\n"
-        "cmp $45, %%eax\n"  // brk
-        "je fake_brk\n"
-        "cmp $78, %%eax\n"  // gettimeofday
-        "je forward\n"
-        "cmp $13, %%eax\n"  // time
-        "je forward\n"
-        "cmp $146, %%eax\n "// writev
-        "je forward\n"
-        
-        "cmp $175, %%eax\n" // rt_sigprocmask
-        "je refuse\n"
-        "cmp $126, %%eax\n" // sigprocmask
-        "je refuse\n"
-        "jmp refuse\n"
-
-"fake_munmap:\n"
-	"pushl %%ebx\n"
-	"pushl %%ecx\n"
-	"pushl %%edx\n"
-        " pushl %%ebx\n"
-        // notice: we ignore the size argument
-        " call dealloc_memory\n"
-	" add $4, %%esp\n"
-	"popl %%edx\n"
-	"popl %%ecx\n"
-        "popl %%ebx\n"
-        "jmp exit\n"
-
-"fake_mmap2:\n"
-        "test %%ebx, %%ebx\n" // ebx: address
-        "jnz refuse\n"
-	"pushl %%ebx\n"
-	"pushl %%ecx\n"
-	"pushl %%edx\n"
-        " pushl %%ecx\n"
-        " call alloc_memory\n"
-	" add $4, %%esp\n"
-	"popl %%edx\n"
-	"popl %%ecx\n"
-        "popl %%ebx\n"
-        "jmp exit\n"
-        
-"fake_brk:\n"
-        "push %%ebx\n"
-        "cmp current_brk, %%ebx\n"
-        "jle fake_brk_done\n"
-        "cmp max_brk, %%ebx\n"
-        "jle fake_brk_below_max\n"
-        "mov max_brk, %%ebx\n"
-"fake_brk_below_max:\n"
-        "mov %%ebx, current_brk\n"
-"fake_brk_done:\n"
-        "mov current_brk, %%eax\n"
-        "pop %%ebx\n"
-        "jmp exit\n"
-
-"refuse:\n"
-        SAVE_REGS
-        "call _syscall_refuse\n"
-        RESTORE_REGS
-
-#ifdef SET_ERRNO
-        "push %%ebx\n"
-        "mov $12, %%eax\n" // ENOMEM
-        "mov %1, %%ebx\n"  // errno_location
-        "mov %%eax, (%%ebx)\n"
-        "pop %%ebx\n"
-#endif
-        "mov $-1, %%eax\n" // return value
-        "jmp exit\n"
-
-"forward:\n"
-#endif
-
-#ifdef LOG_SYSCALLS
         "push %%eax\n"
 #endif
         /* make the syscall */
@@ -275,7 +173,6 @@ asm(
 #ifdef LOG_SYSCALLS
         "add $4, %%esp\n"
 #endif
-
         "ret\n"
         : 
 	: "m" (syscall_log),
