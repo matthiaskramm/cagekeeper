@@ -256,13 +256,13 @@ void seccomp_lockdown()
         ALLOW_ANYARGS(__NR_gettimeofday),
         ALLOW_ANYARGS(__NR_time),
         ALLOW_ANYARGS(__NR_read),
+        ALLOW_ANYARGS(__NR_readv),
         ALLOW_ANYARGS(__NR_write),
         ALLOW_ANYARGS(__NR_writev),
         ALLOW_ANYARGS(__NR_brk),
         ALLOW_ANYARGS(__NR_mmap2),
         ALLOW_ANYARGS(__NR_munmap),
         ALLOW_ANYARGS(__NR_exit),
-        ALLOW_ANYARGS(__NR_read),
 
         {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ERRNO | 1},
     };
