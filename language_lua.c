@@ -82,9 +82,7 @@ static void show_error(language_t*li, lua_State *l)
 {
     const char *s = lua_tolstring(l, -1, NULL);
     log_msg("%s", s);
-    if(li->error_file) {
-        fprintf(li->error_file, "%s\n", s);
-    }
+    language_error(li, s);
 }
 
 static bool initialize_lua(language_t*li, size_t mem_size)

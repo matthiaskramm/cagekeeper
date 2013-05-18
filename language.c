@@ -20,16 +20,12 @@ void language_error(language_t*li, const char*error, ...)
 	buf[l-1] = 0;
 	l--;
     }
-    if(li->error) {
-        free((void*)li->error);
-    }
 
     log_msg("%s", buf);
 
-    if(li->error_file) {
-        fprintf(li->error_file, "%s\n", buf);
+    if(li->log) {
+        li->log(li->user, buf);
     }
-    li->error = strdup(buf);
 }
 
 static jmp_buf timeout_jmp;

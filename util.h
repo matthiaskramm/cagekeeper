@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-#define DEBUG
+//#define DEBUG
 
 extern void stdout_printf(const char*format, ...);
 #ifdef DEBUG
@@ -40,7 +40,7 @@ extern void stdout_printf(const char*format, ...);
 #else
 #define assert(b)       do {} while(0)
 #define log_dbg(f,...)  do {} while(0)
-#define log_msg(f,...)  stdout_printf
+#define log_msg(f,...)  do {} while(0)
 #define log_warn(f,...) stdout_printf
 #define log_err(f,...)  stdout_printf
 #endif

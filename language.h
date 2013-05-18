@@ -25,8 +25,9 @@ typedef struct _language {
 
     void (*destroy)(struct _language*li);
 
-    FILE* error_file;
-    const char*error;
+    /* user modifiable fields: */
+    void *user;
+    void (*log)(void*user, const char*line);
 } language_t;
 
 int call_int_function(language_t* li, const char*name);

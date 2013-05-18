@@ -21,15 +21,20 @@ typedef struct _proxy_internal {
     bool in_call;
 } proxy_internal_t;
 
-#define DEFINE_CONSTANT 1
-#define DEFINE_FUNCTION 2
-#define COMPILE_SCRIPT 3
-#define IS_FUNCTION 4
-#define CALL_FUNCTION 5
+enum {
+    DEFINE_CONSTANT = 1,
+    DEFINE_FUNCTION = 2,
+    COMPILE_SCRIPT = 3,
+    IS_FUNCTION = 4,
+    CALL_FUNCTION =  5,
+};
 
-#define RESP_CALLBACK 10
-#define RESP_RETURN 11
-#define RESP_ERROR 12
+enum {
+    RESP_CALLBACK = 10,
+    RESP_RETURN = 11,
+    RESP_ERROR = 12,
+    RESP_LOG = 13,
+};
 
 #define MAX_ARRAY_SIZE 1024
 #define MAX_STRING_SIZE 4096
@@ -238,6 +243,11 @@ static bool process_callbacks(language_t*li, struct timeval* timeout)
                 value_destroy(ret);
                 value_destroy(args);
                 free(name);
+            }
+            break;
+            case RESP_LOG: {
+                char*message = read_string(proxy->fd_r, MAX_STRING_SIZE, timeout);
+                language_log(li, message);                
             }
             break;
             case RESP_ERROR:
@@ -479,6 +489,14 @@ static void close_all_fds(int*keep, int keep_num)
     }
 }
 
+static void sandbox_log(void*user, const char*str)
+{
+    proxy_internal_t*proxy = (proxy_internal_t*)user;
+
+    write_byte(proxy->fd_w, RESP_LOG);
+    write_string(proxy->fd_w, str);
+}
+
 static bool spawn_child(language_t*li)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
@@ -510,6 +528,10 @@ static bool spawn_child(language_t*li)
         if(!ret) {
             _exit(44);
         }
+
+        /* log messages are passed back to the parent */
+        proxy->old->log = sandbox_log;
+        proxy->old->user = proxy;
 
         seccomp_lockdown();
         fflush(stdout);
