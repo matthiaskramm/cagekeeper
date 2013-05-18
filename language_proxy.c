@@ -512,7 +512,7 @@ static bool spawn_child(language_t*li)
         }
 
         seccomp_lockdown();
-        printf("\n");fflush(stdout);
+        fflush(stdout);
 
         child_loop(li);
         _exit(0);

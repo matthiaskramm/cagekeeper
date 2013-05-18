@@ -29,11 +29,10 @@ typedef struct _language {
     const char*error;
 } language_t;
 
-void define_c_functions(language_t* li, c_function_def_t*functions);
-
 int call_int_function(language_t* li, const char*name);
 void define_int_constant(language_t* li, const char*name, int value);
 void define_string_constant(language_t* li, const char*name, const char* value);
+void define_function(language_t*li, const char*name, void*call, void*context, const char*params, const char*ret);
 
 language_t* javascript_interpreter_new();
 language_t* lua_interpreter_new();

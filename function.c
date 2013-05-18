@@ -17,6 +17,21 @@ typedef struct {
     int size;
 } array_internal_t;
 
+typedef struct _c_function_def {
+    void*runtime;
+    const char*name;
+    fptr_t call;
+    void*context;
+    char*params;
+    char*ret;
+} c_function_def_t;
+
+typedef struct _function_signature {
+    int num_params;
+    type_t*param;
+    type_t ret;
+} function_signature_t;
+
 int count_function_defs(c_function_def_t*methods) 
 {
     int i = 0;
@@ -260,18 +275,16 @@ value_t* cfunction_call(value_t*self, value_t*_args)
     ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, sig->num_params + 1, 
                                      function_ffi_rtype(f), 
                                      atypes);
-
     if(status != FFI_OK) {
-        fprintf(stderr, "ffi_prep_cif failed\n");
         return NULL;
     }
 
     if(_args->type != TYPE_ARRAY) {
-        fprintf(stderr, "function parameters must be an array\n");
+        language_error(f->runtime, "%s: function parameters must be an array\n", f->name);
         return NULL;
     }
     if(sig->num_params != _args->length) {
-        fprintf(stderr, "wrong number of arguments: expected %d, got %d\n", sig->num_params, _args->length);
+        language_error(f->runtime, "%s: wrong number of arguments: expected %d, got %d\n", f->name, sig->num_params, _args->length);
         return NULL;
     }
 
@@ -387,7 +400,8 @@ value_t* cfunction_call(value_t*self, value_t*_args)
             break;
         }
         if(error) {
-            fprintf(stderr, "Can't convert parameter %d from %s to %s\n",
+            language_error(f->runtime, "%s: Can't convert parameter %d from %s to %s\n",
+                    f->name,
                     i+1, 
                     type_to_string(o->type), 
                     type_to_string(t));
@@ -615,14 +629,15 @@ value_t* array_new()
     return value_new_array();
 }
 
-value_t* value_new_cfunction(void (*call)(), void*context, char*params, char*ret)
+value_t* value_new_cfunction(void*runtime, const char*name, fptr_t call, void*context, const char*params, const char*ret)
 {
     c_function_def_t*f = calloc(sizeof(c_function_def_t), 1);
-    f->name = NULL;
+    f->runtime = runtime;
+    f->name = name;
     f->call = call;
     f->context = context;
-    f->params = strdup(params);
-    f->ret = strdup(ret);
+    f->params = (char*)strdup(params);
+    f->ret = (char*)strdup(ret);
 
     value_t*v = calloc(sizeof(value_t),1);
     v->destroy = value_destroy_cfunction;

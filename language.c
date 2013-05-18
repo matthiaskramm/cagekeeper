@@ -154,15 +154,10 @@ void define_string_constant(language_t*li, const char*name, const char*s)
     value_destroy(v);
 }
 
-void define_c_functions(language_t* li, c_function_def_t*functions)
+void define_function(language_t*li, const char*name, void*call, void*context, const char*params, const char*ret)
 {
-    int num = count_function_defs(functions);
-    int i;
-    for(i=0;i<num;i++) {
-        c_function_def_t*f = &functions[i];
-        value_t* v = cfunction_new(f->call, f->context, f->params, f->ret);
-        li->define_function(li, f->name, v);
-    }
+    value_t* v = cfunction_new(li, name, call, context, params, ret);
+    li->define_function(li, name, v);
 }
 
 int call_int_function(language_t*li, const char*name)

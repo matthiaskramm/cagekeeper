@@ -46,7 +46,7 @@ value_t* value_new_string(const char* s);
 value_t* value_new_boolean(bool b);
 value_t* value_new_float32(float f32);
 value_t* value_new_int32(int32_t i32);
-value_t* value_new_cfunction(fptr_t call, void*context, char*args, char*ret);
+value_t* value_new_cfunction(void*runtime, const char*name, fptr_t call, void*context, const char*params, const char*ret);
 value_t* value_new_array();
 
 value_t* value_clone(const value_t*src);
@@ -70,25 +70,5 @@ extern value_t empty_array;
 extern value_t void_value;
 #define NO_ARGS (&empty_array)
 #define VOID_VALUE (&void_value)
-
-typedef struct _c_function_def {
-    char*name;
-    fptr_t call;
-    void*context;
-    char*params;
-    char*ret;
-} c_function_def_t;
-
-typedef struct _function_signature {
-    int num_params;
-    type_t*param;
-    type_t ret;
-} function_signature_t;
-
-function_signature_t* function_get_signature(c_function_def_t*f);
-void function_signature_destroy(function_signature_t*sig);
-
-int count_function_defs(c_function_def_t*f);
-int function_count_args(c_function_def_t*f);
 
 #endif

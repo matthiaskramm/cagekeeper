@@ -90,7 +90,7 @@ libcagekeeper.a: $(OBJECTS)
 	ranlib $@
 
 clean-local:
-	rm -f *.so *.o testpython spec/run spec/run.o
+	rm -f *.so *.o testpython spec/run spec/run.o libcagekeeper.a
 
 clean: clean-local
 

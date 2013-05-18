@@ -65,19 +65,6 @@ static bool negate(void*context, bool b)
     return !b;
 }
 
-c_function_def_t functions[] = {
-    {"trace", (fptr_t)trace, NULL, "s",""},
-    {"get_array", (fptr_t)get_array, NULL, "ii","["},
-    {"add2", (fptr_t)add2, NULL, "ii", "i"},
-    {"add3", (fptr_t)add3, NULL, "iii", "i"},
-    {"fadd2", (fptr_t)fadd2, NULL, "ff", "f"},
-    {"fadd3", (fptr_t)fadd3, NULL, "fff", "f"},
-    {"concat_strings", (fptr_t)concat_strings, NULL, "ss", "s"},
-    {"concat_arrays", (fptr_t)concat_arrays, NULL, "[[", "["},
-    {"negate", (fptr_t)negate, NULL, "b", "b"},
-    {NULL,NULL,NULL,NULL}
-};
-
 int main(int argn, char*argv[])
 {
     char*program = argv[0];
@@ -115,7 +102,15 @@ int main(int argn, char*argv[])
         return 1;
     }
 
-    define_c_functions(l, functions);
+    define_function(l, "trace", trace, NULL, "s",""),
+    define_function(l, "get_array", get_array, NULL, "ii","["),
+    define_function(l, "add2", add2, NULL, "ii", "i"),
+    define_function(l, "add3", add3, NULL, "iii", "i"),
+    define_function(l, "fadd2", fadd2, NULL, "ff", "f"),
+    define_function(l, "fadd3", fadd3, NULL, "fff", "f"),
+    define_function(l, "concat_strings", concat_strings, NULL, "ss", "s"),
+    define_function(l, "concat_arrays", concat_arrays, NULL, "[[", "["),
+    define_function(l, "negate", negate, NULL, "b", "b"),
     l->define_constant(l, "global_int", value_new_int32(3));
     l->define_constant(l, "global_array", value_new_array());
     l->define_constant(l, "global_boolean", value_new_boolean(true));
