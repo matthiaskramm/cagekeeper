@@ -18,7 +18,7 @@ static bool initialize_rb(language_t*li, size_t mem_size)
     if(li->internal)
         return true; // already initialized
 
-    dbg("[rb] initializing\n");
+    log_dbg("[rb] initializing\n");
 
     li->internal = calloc(1, sizeof(rb_internal_t));
     rb_internal_t*rb = (rb_internal_t*)li->internal;
@@ -144,7 +144,7 @@ static VALUE compile_script_exception(VALUE _dfunc, VALUE exc)
 
 static bool compile_script_rb(language_t*li, const char*script)
 {
-    dbg("[ruby] compile_script");
+    log_dbg("[ruby] compile_script");
     ruby_dfunc_t dfunc;
     dfunc.li = li;
     dfunc.script = script;
@@ -165,16 +165,16 @@ static VALUE ruby_function_proxy(VALUE self, VALUE _args)
     }
 
     if(value->type == TYPE_FUNCTION) {
-        dbg("[ruby] calling function %s", rb_id2name(id));
+        log_dbg("[ruby] calling function %s", rb_id2name(id));
         value_t*args = ruby_to_value(_args);
         value_t*ret = value->call(value, args);
         value_destroy(args);
         volatile VALUE r = value_to_ruby(ret);
         value_destroy(ret);
-        dbg("[rb] returning from callback");
+        log_dbg("[rb] returning from callback");
         return r;
     } else {
-        dbg("[ruby] retrieving constant %s (%s)", rb_id2name(id), type_to_string(value->type));
+        log_dbg("[ruby] retrieving constant %s (%s)", rb_id2name(id), type_to_string(value->type));
         volatile VALUE r = value_to_ruby(value);
         return r;
     }
@@ -193,7 +193,7 @@ static void store_function(const char*name, value_t*value)
 static void define_constant_rb(language_t*li, const char*name, value_t*value)
 {
     rb_internal_t*rb = (rb_internal_t*)li->internal;
-    dbg("[ruby] define constant %s", name);
+    log_dbg("[ruby] define constant %s", name);
     rb_define_global_function(name, ruby_function_proxy, -2);
     store_function(name, value);
 }
@@ -201,14 +201,14 @@ static void define_constant_rb(language_t*li, const char*name, value_t*value)
 static void define_function_rb(language_t*li, const char*name, function_t*f)
 {
     rb_internal_t*rb = (rb_internal_t*)li->internal;
-    dbg("[ruby] define function %s", name);
+    log_dbg("[ruby] define function %s", name);
     rb_define_global_function(name, ruby_function_proxy, -2);
     store_function(name, f);
 }
 
 static bool is_function_rb(language_t*li, const char*name)
 {
-    dbg("[ruby] is_function(%s)", name);
+    log_dbg("[ruby] is_function(%s)", name);
     rb_internal_t*rb = (rb_internal_t*)li->internal;
     ID id = rb_intern(name);
     return rb_respond_to(rb->object, id);
@@ -242,14 +242,14 @@ static VALUE call_function_internal(VALUE _fcall)
 }
 static VALUE call_function_exception(VALUE _fcall, VALUE exc)
 {
-    dbg("[rb] call_function_exception");
+    log_dbg("[rb] call_function_exception");
     ruby_fcall_t*fcall = (ruby_fcall_t*)_fcall;
     rb_report_error(exc);
     fcall->fail = true;
 }
 static value_t* call_function_rb(language_t*li, const char*name, value_t*args)
 {
-    dbg("[ruby] calling function %s", name);
+    log_dbg("[ruby] calling function %s", name);
     ruby_fcall_t fcall;
     fcall.li = li;
     fcall.fail = false;

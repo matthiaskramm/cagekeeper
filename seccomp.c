@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <memory.h>
@@ -8,6 +9,7 @@
 #include <sys/prctl.h>
 #include <sys/signal.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <asm/unistd_32.h>
 #define __USE_GNU
 #include <dlfcn.h>
@@ -95,7 +97,7 @@ static void direct_exit(int code)
 }
 
 
-char* dbg_write(const char*format, ...)
+void stdout_printf(const char*format, ...)
 {
     static char buffer[256];
     va_list arglist;
@@ -127,24 +129,24 @@ static void init_memory(size_t size)
 {
     msp_ptr  = mmap(NULL, size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANON, -1, 0);
     if(!msp_ptr) {
-        dbg_write("OUT OF MEMORY\n");
+        stdout_printf("OUT OF MEMORY\n");
         _exit(7);
     }
     msp_size = size;
     msp = create_mspace_with_base(msp_ptr, msp_size, 0);
-    dbg("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
+    log_dbg("mem space: %p - %p\n", msp_ptr, msp_ptr+msp_size);
 }
 
 static int dealloc_memory(int addr)
 {
-    dbg("deallocating memory: %08x\n", addr);
+    log_dbg("deallocating memory: %08x\n", addr);
     mspace_free(msp, (void*)addr);
     return 0;
 }
 
 static void oom()
 {
-    dbg_write("OUT OF MEMORY\n");
+    stdout_printf("OUT OF MEMORY\n");
     _exit(7);
 }
 
@@ -157,34 +159,60 @@ static int alloc_memory(int size)
          */
         void*ptr = mspace_memalign(msp, size, size);
         if(!ptr) {
-            dbg_write("out of memory while allocating %d aligned bytes\n", size);
+            stdout_printf("out of memory while allocating %d aligned bytes\n", size);
             return -1;
         }
         memset(ptr, 0, size);
-        dbg("allocating %d bytes of aligned memory: %08x\n", size, ptr);
+        log_dbg("allocating %d bytes of aligned memory: %08x\n", size, ptr);
         return ptr;
     }
 
     void*ptr = mspace_calloc(msp, size, 1);
     if(!ptr) {
-        dbg_write("out of memory while allocating %d bytes\n", size);
+        stdout_printf("out of memory while allocating %d bytes\n", size);
         return -1;
     }
-    dbg("allocating %d bytes of memory: %08x\n", size, ptr);
+    log_dbg("allocating %d bytes of memory: %08x\n", size, ptr);
     return (int)ptr;
 }
 
-static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) {
-    dbg_write("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
-            eax, ebx, ecx, edx, esi, edi);
-    if(eax == __NR_open) {
-        dbg_write("\topen: %s\n", (char*)ebx);
+static void emulate_gettimeofday(int tsc1, int tsc2, int edx, int ecx, int ebx)
+{
+    struct timeval* tv = (struct timeval*)ebx;
+    struct timezone* tz = (struct timeval*)ecx;
+    static int test = 0;
+    if(tv) {
+        tv->tv_sec = (test += 1);
+        tv->tv_usec = 0;
     }
 }
 
-static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax) {
-    dbg_write("syscall return: eax=%d eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
+static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) 
+{
+    stdout_printf("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
+            eax, ebx, ecx, edx, esi, edi);
+    if(eax == __NR_open) {
+        stdout_printf("\topen: %s\n", (char*)ebx);
+    }
+}
+
+static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax) 
+{
+    stdout_printf("syscall return: eax=%d eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
             eax, eax, ebx, ecx, edx, esi, edi);
+}
+
+static bool refused[512];
+static void _syscall_refuse(int edi, int esi, int edx, int ecx, int ebx, int eax) 
+{
+    if(eax>=512 || eax<0) {
+        log_err("[sandbox] Illegal/Unknown syscall %d", eax);
+        return;
+    }
+    if(!refused[eax]) {
+        log_warn("[sandbox] Refusing system call %d", eax);
+        refused[eax] = true;
+    }
 }
 
 static void (*syscall_log)() = _syscall_log;
@@ -278,12 +306,29 @@ void _dummy(void) {
         "je forward\n"
         "cmp $45, %%eax\n"  // brk
         "je fake_brk\n"
+        "cmp $78, %%eax\n"  // gettimeofday
+        "je fake_gettimeofday\n"
         
         "cmp $175, %%eax\n" // rt_sigprocmask
         "je refuse\n"
         "cmp $126, %%eax\n" // sigprocmask
         "je refuse\n"
         "jmp refuse\n"
+
+"fake_gettimeofday:\n"
+	"pushl %%ebx\n"
+	"pushl %%ecx\n"
+	"pushl %%edx\n"
+
+	"pushl %%edx\n"
+	"pushl %%eax\n"
+        "call emulate_gettimeofday\n"
+        "add $8, %%esp\n"
+
+	"popl %%edx\n"
+	"popl %%ecx\n"
+        "popl %%ebx\n"
+        "jmp exit\n"
 
 "fake_munmap:\n"
 	"pushl %%ebx\n"
@@ -327,6 +372,9 @@ void _dummy(void) {
         "jmp exit\n"
 
 "refuse:\n"
+        SAVE_REGS
+        "call _syscall_refuse\n"
+        RESTORE_REGS
 
 #ifdef SET_ERRNO
         "push %%ebx\n"
@@ -386,14 +434,14 @@ static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
     my_write(1, "signal\n", 7);
     Dl_info info; 
-    dbg_write("signal %d, memory access to addr: %p\n", signal);
+    stdout_printf("signal %d, memory access to addr: %p\n", signal);
     void*here;
     void**stack_top = &here;
     int i = 0;
 
     for(i=0;i<256;i++) {
         if(dladdr(*stack_top, &info) && info.dli_saddr && info.dli_sname) {
-            dbg_write("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
+            stdout_printf("%010p %16s:%s\n", info.dli_saddr, info.dli_fname, info.dli_sname);
         }
         stack_top++;
     }
@@ -405,7 +453,7 @@ static struct sigaction sig;
 
 void*sandbox_sbrk(intptr_t len)
 {
-    dbg_write("Out of memory (not allowing sbrk)\n");
+    stdout_printf("Out of memory (not allowing sbrk)\n");
     return NULL;
 }
 
@@ -428,7 +476,7 @@ void seccomp_lockdown()
 
     init_memory(config_maxmem * 2);
 
-    dbg("extra process space: brk: %p - %p\n", (void*)current_brk, (void*)max_brk);
+    log_dbg("extra process space: brk: %p - %p\n", (void*)current_brk, (void*)max_brk);
 
 #ifdef HIJACK_SYSCALLS
     errno_location = __errno_location();

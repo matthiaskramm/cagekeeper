@@ -48,7 +48,7 @@ static bool initialize_js(language_t*li, size_t mem_size)
     js_internal_t*js = (js_internal_t*)li->internal;
     js->li = li;
 
-    dbg("[js] initializing: allocating runtime with %dMB of memory", mem_size / 1048576);
+    log_dbg("[js] initializing: allocating runtime with %dMB of memory", mem_size / 1048576);
 
     js->rt = JS_NewRuntime(mem_size);
     if (js->rt == NULL)
@@ -199,7 +199,7 @@ static JSBool js_function_proxy(JSContext *cx, uintN argc, jsval *vp)
 
     JS_SET_RVAL(cx, vp, value_to_jsval(cx, value));
     value_destroy(value);
-    dbg("[js] callback successful");
+    log_dbg("[js] callback successful");
     return JS_TRUE;
 }
 
@@ -235,7 +235,7 @@ static bool compile_script_js(language_t*li, const char*script)
     jsval rval;
     JSBool ok;
     
-    dbg("[js] compiling script %p %p", script, js);
+    log_dbg("[js] compiling script %p %p", script, js);
     ok = JS_EvaluateScript(js->cx, js->global, script, strlen(script), "__main__", 1, &rval);
     if(!ok) {
         language_error(li, "Couldn't compile javascript program\n");
@@ -246,7 +246,7 @@ static bool compile_script_js(language_t*li, const char*script)
 static bool is_function_js(language_t*li, const char*name)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
-    dbg("[js] is_function %s", name);
+    log_dbg("[js] is_function %s", name);
     jsval rval;
     JSBool ok;
     js->noerrors = 1;
@@ -263,7 +263,7 @@ static bool is_function_js(language_t*li, const char*name)
 static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
 {
     js_internal_t*js = (js_internal_t*)li->internal;
-    dbg("[js] calling function %s", name);
+    log_dbg("[js] calling function %s", name);
     assert(_args->type == TYPE_ARRAY);
 
     JSBool ok;
@@ -285,6 +285,7 @@ static value_t* call_function_js(language_t*li, const char*name, value_t* _args)
     printf("[js] return value: ");
     value_dump(val);
     printf("\n");
+    fflush(stdout);
 #endif
     return val;
 }

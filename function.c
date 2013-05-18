@@ -139,7 +139,7 @@ ffi_type * function_ffi_rtype(c_function_def_t*method)
 {
     type_t type;
     _parse_type(method->ret, &type);
-    dbg("[ffi] ret type: \"%s\" %s", method->ret, type_to_string(type));
+    log_dbg("[ffi] ret type: \"%s\" %s", method->ret, type_to_string(type));
     return _type_to_ffi_type(type);
 }
 

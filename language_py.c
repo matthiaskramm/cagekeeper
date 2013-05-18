@@ -143,7 +143,7 @@ static PyObject* python_method_proxy(PyObject* _self, PyObject* _args)
 static bool compile_script_py(language_t*li, const char*script)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
-    dbg("[python] compiling script");
+    log_dbg("[python] compiling script");
 
     // test memory allocation
     PyObject* tmp = PyString_FromString("test");
@@ -156,9 +156,9 @@ static bool compile_script_py(language_t*li, const char*script)
     }
 #ifdef DEBUG
     if(ret!=NULL) {
-        dbg("[python] compile successful");
+        log_dbg("[python] compile successful");
     } else {
-        dbg("[python] compile error");
+        log_dbg("[python] compile error");
     }
 #endif
     return ret!=NULL;
@@ -176,7 +176,7 @@ static bool is_function_py(language_t*li, const char*name)
 static value_t* call_function_py(language_t*li, const char*name, value_t*_args)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
-    dbg("[python] calling function %s", name);
+    log_dbg("[python] calling function %s", name);
 
     PyObject*function = PyDict_GetItemString(py->globals, name);
     if(function == NULL) {
@@ -216,7 +216,7 @@ static value_t* call_function_py(language_t*li, const char*name, value_t*_args)
 static void define_constant_py(language_t*li, const char*name, value_t*value)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
-    dbg("[python] defining constant %s", name);
+    log_dbg("[python] defining constant %s", name);
     PyDict_SetItem(py->globals, PyString_FromString(name), value_to_pyobject(li, value, false));
 }
 
@@ -271,7 +271,7 @@ static bool initialize_py(language_t*li, size_t mem_size)
     if(li->internal)
         return true; //already initialized
 
-    dbg("[python] initializing interpreter");
+    log_dbg("[python] initializing interpreter");
 
     li->internal = calloc(1, sizeof(py_internal_t));
     py_internal_t*py = (py_internal_t*)li->internal;

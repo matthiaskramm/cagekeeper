@@ -24,7 +24,7 @@ void language_error(language_t*li, const char*error, ...)
         free((void*)li->error);
     }
 
-    printf("%s\n", buf);
+    log_msg("%s", buf);
 
     if(li->error_file) {
         fprintf(li->error_file, "%s\n", buf);

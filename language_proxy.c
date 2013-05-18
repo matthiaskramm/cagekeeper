@@ -175,7 +175,7 @@ static void define_constant_proxy(language_t*li, const char*name, value_t*value)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
-    dbg("[proxy] define_constant(%s)", name);
+    log_dbg("[proxy] define_constant(%s)", name);
     write_byte(proxy->fd_w, DEFINE_CONSTANT);
     write_string(proxy->fd_w, name);
     write_value(proxy->fd_w, value);
@@ -185,7 +185,7 @@ static void define_function_proxy(language_t*li, const char*name, function_t*f)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
-    dbg("[proxy] define_function(%s)", name);
+    log_dbg("[proxy] define_function(%s)", name);
     
     /* let the child know that we're accepting callbacks for this function name */
     write_byte(proxy->fd_w, DEFINE_FUNCTION);
@@ -252,7 +252,7 @@ static bool compile_script_proxy(language_t*li, const char*script)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
-    dbg("[proxy] compile_script()");
+    log_dbg("[proxy] compile_script()");
     write_byte(proxy->fd_w, COMPILE_SCRIPT);
     write_string(proxy->fd_w, script);
 
@@ -293,7 +293,7 @@ static bool is_function_proxy(language_t*li, const char*name)
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
-    dbg("[proxy] is_function(%s)", name);
+    log_dbg("[proxy] is_function(%s)", name);
     write_byte(proxy->fd_w, IS_FUNCTION);
     write_string(proxy->fd_w, name);
 
@@ -312,7 +312,7 @@ static value_t* call_function_proxy(language_t*li, const char*name, value_t*args
 {
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
-    dbg("[proxy] call_function(%s)", name);
+    log_dbg("[proxy] call_function(%s)", name);
     write_byte(proxy->fd_w, CALL_FUNCTION);
     write_string(proxy->fd_w, name);
     write_value(proxy->fd_w, args);
@@ -366,7 +366,7 @@ static void proxy_function_destroy(value_t*v)
 static value_t* proxy_function_call(value_t*v, value_t*args)
 {
     proxy_function_t*f = (proxy_function_t*)v->internal; 
-    dbg("[sandbox] invoking callback %s", f->name);
+    log_dbg("[sandbox] invoking callback %s", f->name);
     language_t*li = f->li;
     proxy_internal_t*proxy = (proxy_internal_t*)li->internal;
 
@@ -387,15 +387,15 @@ static void child_loop(language_t*li)
     while(1) {
         char command;
         if(!read_with_retry(r, &command, 1)) {
-            dbg("[sandbox] Couldn't read command- parent terminated?");
+            log_dbg("[sandbox] Couldn't read command- parent terminated?");
             _exit(1);
         }
 
-        dbg("[sandbox] command=%d", command);
+        log_dbg("[sandbox] command=%d", command);
         switch(command) {
             case DEFINE_CONSTANT: {
                 char*s = read_string(r, 0, NULL);
-                dbg("[sandbox] define constant(%s)", s);
+                log_dbg("[sandbox] define constant(%s)", s);
                 value_t*v = read_value_nolimit(r);
                 old->define_constant(old, s, v);
             }
@@ -405,7 +405,7 @@ static void child_loop(language_t*li)
                 uint8_t num_params = 0;
                 read_with_retry(r, &num_params, 1);
 
-                dbg("[sandbox] define function(%s), %d parameters", name, num_params);
+                log_dbg("[sandbox] define function(%s), %d parameters", name, num_params);
 
                 proxy_function_t*pf = calloc(sizeof(proxy_function_t), 1);
                 pf->li = li;
@@ -423,7 +423,7 @@ static void child_loop(language_t*li)
             break;
             case COMPILE_SCRIPT: {
                 char*script = read_string(r, 0, NULL);
-                dbg("[sandbox] compile script");
+                log_dbg("[sandbox] compile script");
                 bool ret = old->compile_script(old, script);
                 write_byte(w, RESP_RETURN);
                 write_byte(w, ret);
@@ -432,7 +432,7 @@ static void child_loop(language_t*li)
             break;
             case IS_FUNCTION: {
                 char*function_name = read_string(r, 0, NULL);
-                dbg("[sandbox] is_function(%s)", function_name);
+                log_dbg("[sandbox] is_function(%s)", function_name);
                 bool ret = old->is_function(old, function_name);
                 write_byte(w, ret);
                 free(function_name);
@@ -440,16 +440,16 @@ static void child_loop(language_t*li)
             break;
             case CALL_FUNCTION: {
                 char*function_name = read_string(r, 0, NULL);
-                dbg("[sandbox] call_function(%s)", function_name, old->name);
+                log_dbg("[sandbox] call_function(%s)", function_name, old->name);
                 value_t*args = read_value_nolimit(r);
                 value_t*ret = old->call_function(old, function_name, args);
                 if(ret) {
-                    dbg("[sandbox] returning function value (%s)", type_to_string(ret->type));
+                    log_dbg("[sandbox] returning function value (type:%s)", type_to_string(ret->type));
                     write_byte(w, RESP_RETURN);
                     write_value(w, ret);
                     value_destroy(ret);
                 } else {
-                    dbg("[sandbox] error calling function %s", function_name);
+                    log_dbg("[sandbox] error calling function %s", function_name);
                     write_byte(w, RESP_ERROR);
                 }
                 free(function_name);
@@ -541,16 +541,16 @@ static void destroy_proxy(language_t* li)
         sprintf(buffer, "procstat /proc/%d/stat", proxy->child_pid);
         system(buffer);
 #endif
-        dbg("killing sandbox process %d\n", proxy->child_pid);
+        log_dbg("killing sandbox process %d\n", proxy->child_pid);
         kill(proxy->child_pid, SIGKILL);
         ret = waitpid(proxy->child_pid, &status, 0);
     }
     if(WIFSIGNALED(status)) {
-        dbg("%08x %08x signal=%d\n", ret, status, WTERMSIG(status));
+        log_dbg("%08x %08x signal=%d\n", ret, status, WTERMSIG(status));
     } else if(WIFEXITED(status)) {
-        dbg("%08x %08x exit=%d\n", ret, status, WEXITSTATUS(status));
+        log_dbg("%08x %08x exit=%d\n", ret, status, WEXITSTATUS(status));
     } else {
-        dbg("%08x %08x unknown exit reason. status=%d\n", ret, status, status);
+        log_dbg("%08x %08x unknown exit reason. status=%d\n", ret, status, status);
     }
     free(proxy);
     free(li);

@@ -81,7 +81,7 @@ static void dump_stack(lua_State *l) {
 static void show_error(language_t*li, lua_State *l)
 {
     const char *s = lua_tolstring(l, -1, NULL);
-    dbg_write("%s", s);
+    log_msg("%s", s);
     if(li->error_file) {
         fprintf(li->error_file, "%s\n", s);
     }
@@ -214,7 +214,7 @@ static int lua_function_proxy(lua_State*l)
     function_data_t*data = (function_data_t*)lua_touserdata(l, lua_upvalueindex(1));
     value_t*f = data->f;
     int i;
-    dbg("[lua] lua calls function %s (%d parameters)", data->name, f->num_params);
+    log_dbg("[lua] lua calls function %s (%d parameters)", data->name, f->num_params);
 
     value_t*args = array_new();
     int j = -f->num_params;

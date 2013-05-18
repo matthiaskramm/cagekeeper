@@ -21,9 +21,9 @@ JS_CFLAGS=-I/usr/include/js/ -I/usr/local/include/js/
 JS_LDFLAGS=
 JS_LIBS=-lmozjs185
 
-JS_CFLAGS =-I/home/sources/js-1.8.5/js/src/
-JS_LDFLAGS=
-JS_LIBS=/home/sources/js-1.8.5/js/src/libjs_static.a
+ifeq ($(shell echo Makefile.local*), Makefile.local)
+include Makefile.local
+endif
 
 LDFLAGS=$(RUBY_LDFLAGS) $(PYTHON_LDFLAGS) $(LUA_LDFLAGS) $(JS_LDFLAGS) $(FFI_LDFLAGS) -Wl,--export-dynamic 
 LIBS=$(RUBY_LIBS) $(PYTHON_LIBS) $(LUA_LIBS) $(JS_LIBS) $(FFI_LIBS) -lstdc++
@@ -56,7 +56,7 @@ testjs: testjs.o $(OBJECTS)
 ptmalloc/malloc.o: ptmalloc/malloc.c ptmalloc/malloc-2.8.3.h
 	$(CC) -c $(PTMALLOC_CFLAGS) -Iptmalloc ptmalloc/malloc.c -o $@
 
-seccomp.o: seccomp.c
+seccomp.o: seccomp.c util.h
 	$(CC) -c $(PTMALLOC_CFLAGS) seccomp.c -o $@
 
 dict.o: dict.c language.h
@@ -93,8 +93,10 @@ libcagekeeper.a: $(OBJECTS)
 	ar cru $@ $(OBJECTS)
 	ranlib $@
 
-clean:
+clean-local:
 	rm -f *.so *.o testpython ptmalloc/*.o spec/run spec/run.o
+
+clean: clean-local
 
 test:
 	./run_specs -a

@@ -28,14 +28,21 @@
 extern "C" {
 #endif
 
-//#define DEBUG
+#define DEBUG
 
+extern void stdout_printf(const char*format, ...);
 #ifdef DEBUG
 #include <assert.h>
-#define dbg dbg_write
+#define log_dbg         stdout_printf
+#define log_msg         stdout_printf
+#define log_warn        stdout_printf
+#define log_err         stdout_printf
 #else
-#define assert(b) do {} while(0)
-#define dbg(f,...) do {} while(0)
+#define assert(b)       do {} while(0)
+#define log_dbg(f,...)  do {} while(0)
+#define log_msg(f,...)  stdout_printf
+#define log_warn(f,...) stdout_printf
+#define log_err(f,...)  stdout_printf
 #endif
 
 void*memdup(const void*ptr, size_t size);
