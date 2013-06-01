@@ -263,6 +263,7 @@ void seccomp_lockdown()
         ALLOW_ANYARGS(__NR_mmap2),
         ALLOW_ANYARGS(__NR_munmap),
         ALLOW_ANYARGS(__NR_futex),
+        ALLOW_ANYARGS(__NR_sigprocmask),
         ALLOW_ANYARGS(__NR_exit),
 
         {code: BPF_RET+BPF_K,         jt: 0, jf: 0, k: SECCOMP_RET_ERRNO | 1},
