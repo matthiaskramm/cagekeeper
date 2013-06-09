@@ -5,6 +5,8 @@
 #include "util.h"
 #include "language.h"
 
+#include <frameobject.h>
+
 typedef struct _py_internal {
     PyObject*globals;
     PyObject*module;
@@ -140,6 +142,49 @@ static PyObject* python_method_proxy(PyObject* _self, PyObject* _args)
     return pret;
 }
 
+static void handle_exception(language_t*li)
+{
+    PyObject *exception, *v, *_tb;
+    PyErr_Fetch(&exception, &v, &_tb);
+    PyErr_NormalizeException(&exception, &v, &_tb);
+
+    language_error(li, "Traceback (most recent call last):");
+
+    PyTracebackObject *tb = (PyTracebackObject*)_tb;
+    int err = 0;
+    while(tb != NULL && err == 0) {
+        language_error(li, "  File \"%.500s\", line %d, in %.500s\n",
+                    PyString_AsString(tb->tb_frame->f_code->co_filename),
+                    tb->tb_lineno,
+                    PyString_AsString(tb->tb_frame->f_code->co_name));
+        tb = tb->tb_next;
+    }
+
+    PyObject *message = PyObject_Str(v);
+    char*msg = PyString_AsString(message);
+
+    if (PyExceptionClass_Check(exception)) {
+        PyObject* moduleName;
+        char* className = PyExceptionClass_Name(exception);
+        if (className != NULL) {
+            char *dot = strrchr(className, '.');
+            if (dot != NULL)
+                className = dot+1;
+        }
+        language_error(li, "Exception %s: %s", className, msg);
+    } else if(exception && exception->ob_type) {
+        language_error(li, "Exception %s: %s", exception->ob_type->tp_name, msg);
+    } else {
+        language_error(li, "Exception: %s", msg);
+    }
+
+    Py_DECREF(message);
+
+    Py_DECREF(exception);
+    Py_DECREF(v);
+    Py_DECREF(_tb);
+}
+
 static bool compile_script_py(language_t*li, const char*script)
 {
     py_internal_t*py = (py_internal_t*)li->internal;
@@ -151,6 +196,7 @@ static bool compile_script_py(language_t*li, const char*script)
 
     PyObject* ret = PyRun_String(script, Py_file_input, py->globals, NULL);
     if(ret == NULL) {
+        handle_exception(li);
         PyErr_Print();
         PyErr_Clear();
     }
@@ -205,6 +251,7 @@ static value_t* call_function_py(language_t*li, const char*name, value_t*_args)
     Py_DECREF(args);
 
     if(ret == NULL) {
+        handle_exception(li);
         PyErr_Print();
         PyErr_Clear();
         return NULL;
