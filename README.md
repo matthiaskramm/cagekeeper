@@ -7,7 +7,7 @@ It's aimed at online programming challenges, homework assignments etc.
 
 Features:
 
-* shielding of guest programs from the rest of the operating system: the processes run in a seccomp jail and can't do any system calls other than read/write (to pre-opened pipes), gettimeofday, and exit.
+* shielding of guest programs from the rest of the operating system: the processes run in a seccomp jail and can only execute a very limited set of system calls (read/write to pre-opened pipes, gettimeofday, exit, etc.)
 * memory limit: limit the amount of memory guest processes are able to consume.
 * time limits: abort function calls to guest programs after a time limit has elapsed.
 * unified interface: all language interpreters are initialized in the same way.
