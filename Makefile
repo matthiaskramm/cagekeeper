@@ -5,7 +5,7 @@ FFI_LIBS:=$(shell pkg-config --libs libffi)
 
 RUBY_CFLAGS=-I/usr/lib/ruby/1.8/i686-linux -D_FILE_OFFSET_BITS=64 -fno-strict-aliasing
 RUBY_LDFLAGS=-Wl,-O1 -rdynamic -Wl,-export-dynamic
-RUBY_LIBS=-lruby18 -lz -ldl -lcrypt -lm -lc
+RUBY_LIBS=-lruby18-static -lz -ldl -lcrypt -lm -lc -lrt
 
 PYTHON_CFLAGS=-I/usr/include/python2.7
 PYTHON_LDFLAGS=
