@@ -62,7 +62,7 @@ void array_append_string(value_t*array, char* string);
 void array_append_boolean(value_t*array, bool string);
 void array_destroy(value_t*array);
 
-#define array_append_value array_append 
+#define array_append_value array_append
 #define cfunction_new value_new_cfunction
 value_t* array_new();
 

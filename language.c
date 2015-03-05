@@ -127,7 +127,7 @@ language_t* interpreter_by_extension(const char*filename)
 language_t* unsafe_interpreter_by_extension(const char*filename)
 {
     language_t*li = raw_interpreter_by_extension(filename);
-    
+
     bool ret = li->initialize(li, config_maxmem);
     if(!ret) {
         li->destroy(li);

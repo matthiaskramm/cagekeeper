@@ -32,7 +32,7 @@ typedef struct _function_signature {
     type_t ret;
 } function_signature_t;
 
-int count_function_defs(c_function_def_t*methods) 
+int count_function_defs(c_function_def_t*methods)
 {
     int i = 0;
     while(methods[i].call) {
@@ -49,7 +49,7 @@ static int _parse_type(const char*s, type_t*type)
         case 'b': *type = TYPE_BOOLEAN; break;
         case 'i': *type = TYPE_INT32; break;
         case 'f': *type = TYPE_FLOAT32; break;
-        default:        
+        default:
         case 's': *type = TYPE_STRING; break;
         case '[': *type = TYPE_ARRAY; break;
     }
@@ -57,7 +57,7 @@ static int _parse_type(const char*s, type_t*type)
     return s - start;
 }
 
-int function_count_args(c_function_def_t*method) 
+int function_count_args(c_function_def_t*method)
 {
     const char*a;
     int count = 0;
@@ -122,7 +122,7 @@ value_t* value_clone(const value_t*src)
         }
         break;
     }
-    return NULL; 
+    return NULL;
 }
 
 static ffi_type* _type_to_ffi_type(type_t type)
@@ -272,8 +272,8 @@ value_t* cfunction_call(value_t*self, value_t*_args)
 
     ffi_cif cif;
     ffi_type **atypes = function_ffi_args_plus_one(f);
-    ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, sig->num_params + 1, 
-                                     function_ffi_rtype(f), 
+    ffi_status status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, sig->num_params + 1,
+                                     function_ffi_rtype(f),
                                      atypes);
     if(status != FFI_OK) {
         return NULL;
@@ -402,8 +402,8 @@ value_t* cfunction_call(value_t*self, value_t*_args)
         if(error) {
             language_error(f->runtime, "%s: Can't convert parameter %d from %s to %s\n",
                     f->name,
-                    i+1, 
-                    type_to_string(o->type), 
+                    i+1,
+                    type_to_string(o->type),
                     type_to_string(t));
             function_signature_destroy(sig);
             free(atypes);
@@ -418,7 +418,7 @@ value_t* cfunction_call(value_t*self, value_t*_args)
 
     free(atypes);
     type_t ret_type = sig->ret;
-    
+
     value_t* ret = NULL;
     switch(ret_type) {
         case TYPE_VOID:

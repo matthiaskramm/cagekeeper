@@ -1,8 +1,8 @@
 /* dict.c
    Hashtable implementation
 
-   Copyright (c) 2010-2013 Matthias Kramm <kramm@quiss.org> 
- 
+   Copyright (c) 2010-2013 Matthias Kramm <kramm@quiss.org>
+
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation; either version 2 of the License, or
@@ -41,7 +41,7 @@ static void crc32_init(void)
     }
 }
 // ------------------------------- hash function -----------------------
-unsigned int crc32_add_byte(unsigned int checksum, unsigned char b) 
+unsigned int crc32_add_byte(unsigned int checksum, unsigned char b)
 {
     crc32_init();
     return checksum>>8 ^ crc32[(b^checksum)&0xff];
@@ -83,60 +83,60 @@ unsigned int hash_block(const void*_data, int len)
 
 // ------------------------------- hashtype_t -------------------------------
 
-bool ptr_equals(const void*o1, const void*o2) 
+bool ptr_equals(const void*o1, const void*o2)
 {
     return o1==o2;
 }
-unsigned int ptr_hash(const void*o) 
+unsigned int ptr_hash(const void*o)
 {
     return hash_block((unsigned char*)&o, sizeof(o));
 }
-void* ptr_dup(const void*o) 
+void* ptr_dup(const void*o)
 {
     return (void*)o;
 }
-void ptr_free(void*o) 
+void ptr_free(void*o)
 {
     return;
 }
 
-bool int_equals(const void*o1, const void*o2) 
+bool int_equals(const void*o1, const void*o2)
 {
     return o1==o2;
 }
-unsigned int int_hash(const void*o) 
+unsigned int int_hash(const void*o)
 {
     return hash_block((const unsigned char*)&o, sizeof(o));
 }
-void* int_dup(const void*o) 
+void* int_dup(const void*o)
 {
     return (void*)o;
 }
-void int_free(void*o) 
+void int_free(void*o)
 {
     return;
 }
 
-bool charptr_equals(const void*o1, const void*o2) 
+bool charptr_equals(const void*o1, const void*o2)
 {
     if(!o1 || !o2)
         return o1==o2;
     return !strcmp(o1,o2);
 }
-unsigned int charptr_hash(const void*o) 
+unsigned int charptr_hash(const void*o)
 {
     if(!o)
         return 0;
     int l = strlen(o);
     return hash_block((unsigned char*)o, l);
 }
-void* charptr_dup(const void*o) 
+void* charptr_dup(const void*o)
 {
     if(!o)
         return 0;
     return strdup(o);
 }
-void charptr_free(void*o) 
+void charptr_free(void*o)
 {
     if(o) {
         free(o);
@@ -220,7 +220,7 @@ static void dict_expand(dict_t*h, int newlen)
 {
     assert(h->hashsize < newlen);
     dictentry_t**newslots = (dictentry_t**)calloc(1,sizeof(dictentry_t*)*newlen);
-    int t; 
+    int t;
     for(t=0;t<h->hashsize;t++) {
         dictentry_t*e = h->slots[t];
         while(e) {
@@ -242,12 +242,12 @@ dictentry_t* dict_put(dict_t*h, const void*key, void* data)
 {
     unsigned int hash = h->key_type->hash(key);
     dictentry_t*e = (dictentry_t*)malloc(sizeof(dictentry_t));
-    
+
     if(!h->hashsize)
         dict_expand(h, 1);
 
     unsigned int hash2 = hash % h->hashsize;
-    
+
     e->key = h->key_type->dup(key);
     e->hash = hash; //for resizing
     e->next = h->slots[hash2];
@@ -286,7 +286,7 @@ static inline dictentry_t* dict_do_lookup(dict_t*h, const void*key)
     if(!h->num) {
         return 0;
     }
-    
+
     unsigned int ohash = h->key_type->hash(key);
     unsigned int hash = ohash % h->hashsize;
 
@@ -468,12 +468,12 @@ void dict_free_all(dict_t*h, char free_keys, void (*free_data_function)(void*))
     memset(h, 0, sizeof(dict_t));
 }
 
-void dict_clear_shallow(dict_t*h) 
+void dict_clear_shallow(dict_t*h)
 {
     dict_free_all(h, 0, 0);
 }
 
-void dict_clear(dict_t*h) 
+void dict_clear(dict_t*h)
 {
     dict_free_all(h, 1, 0);
 }
