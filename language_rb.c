@@ -38,7 +38,7 @@ static bool initialize_rb(language_t*li, size_t mem_size)
 static void rb_report_error(VALUE error)
 {
     volatile VALUE message = rb_obj_as_string(error);
-    char*msg = RSTRING(message)->ptr;
+    char*msg = RSTRING(message)->as.heap.ptr;
     if(msg && *msg) {
         printf("Ruby Error:\n");
         printf("%s\n", msg);
@@ -66,10 +66,10 @@ static value_t* ruby_to_value(VALUE v)
     case T_ARRAY: {
       /* process Array */
       value_t*array = array_new();
-      int len = RARRAY(v)->len;
+      int len = RARRAY(v)->as.heap.len;
       int i;
       for(i=0;i<len;i++) {
-          volatile VALUE item = RARRAY(v)->ptr[i];
+          volatile VALUE item = RARRAY(v)->as.heap.ptr[i];
           array_append(array, ruby_to_value(item));
       }
       return array;
