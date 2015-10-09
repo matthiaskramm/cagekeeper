@@ -23,42 +23,42 @@
 #include "util.h"
 
 #define CATCH_SIGNALS
-#define HIJACK_SYSCALLS
+//#define HIJACK_SYSCALLS
 //#define LOG_SYSCALLS
 //#define LOG_SYSCALL_RETURN_VALUES
 
 #define MEM_PAD 65536
 
 #define SAVE_REGS \
-	"pushl %%ebp\n" \
-	"pushl %%eax\n" \
-	"pushl %%ebx\n" \
-	"pushl %%ecx\n" \
-	"pushl %%edx\n" \
-	"pushl %%esi\n" \
-	"pushl %%edi\n"
+	"push %%rbp\n" \
+	"push %%rax\n" \
+	"push %%rbx\n" \
+	"push %%rcx\n" \
+	"push %%rdx\n" \
+	"push %%rsi\n" \
+	"push %%rdi\n"
 
 #define RESTORE_REGS \
-	"popl %%edi\n" \
-	"popl %%esi\n" \
-	"popl %%edx\n" \
-	"popl %%ecx\n" \
-	"popl %%ebx\n" \
-	"popl %%eax\n" \
-	"popl %%ebp\n"
+	"pop %%rdi\n" \
+	"pop %%rsi\n" \
+	"pop %%rdx\n" \
+	"pop %%rcx\n" \
+	"pop %%rbx\n" \
+	"pop %%rax\n" \
+	"pop %%rbp\n"
 
 #ifdef HIJACK_SYSCALLS
-static ssize_t my_write(int handle, void*data, int length) {
+static long my_write(long handle, void*data, long length) {
     if(length < 0)
         length = strlen(data);
 
-    int ret;
+    long ret;
     asm(
         SAVE_REGS
-        "mov %1, %%edx\n" // len
-        "mov %2, %%ecx\n" // message
-        "mov %3, %%ebx\n" // fd
-        "mov %4, %%eax\n" // sys_write
+        "mov %1, %%rdx\n" // len
+        "mov %2, %%rcx\n" // message
+        "mov %3, %%rbx\n" // fd
+        "mov %4, %%rax\n" // sys_write
         "int $0x080\n"
         RESTORE_REGS
         : "=ra" (ret)
@@ -70,16 +70,16 @@ static ssize_t my_write(int handle, void*data, int length) {
     return ret;
 }
 
-static void direct_exit(int code)
+static void direct_exit(long code)
 {
-    int ret;
+    long ret;
     asm(
-        "push %%ebx\n"
-        "mov %1, %%ebx\n" // code
-        "mov %2, %%eax\n" // sys_exit
+        "push %%rbx\n"
+        "mov %1, %%rbx\n" // code
+        "mov %2, %%rax\n" // sys_exit
         "int $0x080\n"
-        "pop %%ebx\n"
-        "mov %%eax, %0\n"
+        "pop %%rbx\n"
+        "mov %%rax, %0\n"
         : "=r" (ret)
         : "m" (code),
           "i" (__NR_exit));
@@ -107,40 +107,40 @@ void stdout_printf(const char*format, ...)
 #endif
 }
 
-static void _syscall_log(int edi, int esi, int edx, int ecx, int ebx, int eax) 
+static void _syscall_log(long rdi, long rsi, long rdx, long rcx, long rbx, long rax) 
 {
-    if(eax == __NR_gettimeofday)
+    if(rax == __NR_gettimeofday)
         return;
 
-    stdout_printf("syscall eax=%d ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
-            eax, ebx, ecx, edx, esi, edi);
-    if(eax == __NR_open) {
-        stdout_printf("\topen: %s\n", (char*)ebx);
+    stdout_printf("syscall rax=%d rbx=%d rcx=%d rdx=%d rsi=%d rdi=%d\n", 
+            rax, rbx, rcx, rdx, rsi, rdi);
+    if(rax == __NR_open) {
+        stdout_printf("\topen: %s\n", (char*)rbx);
     }
 }
 
-static void _syscall_log_return_value(int edi, int esi, int edx, int ecx, int ebx, int eax, int ebp, int call) 
+static void _syscall_log_return_value(long rdi, long rsi, long rdx, long rcx, long rbx, long rax, long ebp, long call) 
 {
     if(call == __NR_gettimeofday)
         return;
 
-    stdout_printf("syscall return: eax=%d eax=%08x ebx=%d ecx=%d edx=%d esi=%d edi=%d\n", 
-            eax, eax, ebx, ecx, edx, esi, edi);
+    stdout_printf("syscall return: rax=%d rax=%08x rbx=%d rcx=%d rdx=%d rsi=%d rdi=%d\n", 
+            rax, rax, rbx, rcx, rdx, rsi, rdi);
 }
 
 static bool refused[512];
-static void _syscall_refuse(int edi, int esi, int edx, int ecx, int ebx, int eax) 
+static void _syscall_refuse(long rdi, long rsi, long rdx, long rcx, long rbx, long rax) 
 {
-    if(eax>=512 || eax<0) {
-        log_err("[sandbox] Illegal/Unknown syscall %d", eax);
+    if(rax>=512 || rax<0) {
+        log_err("[sandbox] Illegal/Unknown syscall %d", rax);
         return;
     }
-    if(!refused[eax]) {
-        log_warn("[sandbox] Refusing system call %d", eax);
-        refused[eax] = true;
+    if(!refused[rax]) {
+        log_warn("[sandbox] Refusing system call %d", rax);
+        refused[rax] = true;
     }
-    if(eax == __NR_open) {
-        stdout_printf("refusing open: %s\n", (char*)ebx);
+    if(rax == __NR_open) {
+        stdout_printf("refusing open: %s\n", (char*)rbx);
     }
 }
 
@@ -158,7 +158,7 @@ asm(
         SAVE_REGS
         "call _syscall_log\n"
         RESTORE_REGS
-        "push %%eax\n"
+        "push %%rax\n"
 #endif
         /* make the syscall */
         "int $0x080\n"
@@ -183,15 +183,15 @@ static void*old_syscall_handler = (void*)0x12345678;
 
 static void hijack_linux_gate(void) {
     // all your system calls are belong to us!
-    asm("mov %%gs:0x10, %%eax\n"
-        "mov %%eax, %0\n"
+    asm("mov %%gs:0x10, %%rax\n"
+        "mov %%rax, %0\n"
 
-        "mov $do_syscall, %%eax\n"
-        "mov %%eax, %%gs:0x10\n"
+        "mov $do_syscall, %%rax\n"
+        "mov %%rax, %%gs:0x10\n"
 
         : "=m" (old_syscall_handler)
         : "r" (&do_syscall)
-        : "eax");
+        : "rax");
 };
 #endif
 
@@ -199,12 +199,19 @@ static void hijack_linux_gate(void) {
 static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
 {
     void*here;
+#ifdef HIJACK_SYSCALLS
     my_write(1, "signal\n", 7);
-    Dl_info info; 
+#else
+    printf("signal\n");
+#endif
+    Dl_info info;
+#ifdef HIJACK_SYSCALLS
     stdout_printf("signal %d, memory access to addr: %p\n", signal);
+#endif
     void**stack_top = &here;
     int i = 0;
 
+#ifdef HIJACK_SYSCALLS
     for(i=0;i<256;i++) {
         if(dladdr(*stack_top, &info)) {
             const char* symbol_name = info.dli_sname;
@@ -214,8 +221,13 @@ static void handle_signal(int signal, siginfo_t*siginfo, void*ucontext)
         }
         stack_top++;
     }
+#endif
 
+#ifdef HIJACK_SYSCALLS
     direct_exit(signal);
+#else
+    _exit(signal);
+#endif
 }
 static struct sigaction sig;
 #endif
