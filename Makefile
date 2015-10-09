@@ -1,11 +1,11 @@
-all: spec/run testbrk testlua testruby testpython testjs libcagekeeper.a
+all: spec/run libcagekeeper.a
 
 FFI_CFLAGS := $(shell pkg-config --cflags libffi)
 FFI_LIBS:=$(shell pkg-config --libs libffi)
 
 RUBY_CFLAGS=-I/usr/include/ruby-1.9.1/x86_64-linux/ -I/usr/include/ruby-1.9.1/ -I/usr/lib/ruby/1.8/i686-linux -D_FILE_OFFSET_BITS=64 -fno-strict-aliasing
 RUBY_LDFLAGS=-Wl,-O1 -rdynamic -Wl,-export-dynamic
-RUBY_LIBS=-lruby18-static -lz -ldl -lcrypt -lm -lc -lrt
+RUBY_LIBS=-lruby-1.9.1 -lz -ldl -lcrypt -lm -lc -lrt
 
 PYTHON_CFLAGS=-I/usr/include/python2.7
 PYTHON_LDFLAGS=
@@ -13,7 +13,7 @@ PYTHON_LIBS=-lpython2.7 -lpthread
 
 LUA_CFLAGS=-I/usr/include/lua5.1
 LUA_LDFLAGS=
-LUA_LIBS=-llua
+LUA_LIBS=-llua5.1
 
 JS_CFLAGS=-I/usr/include/js/ -I/usr/local/include/js/ 
 JS_LDFLAGS=
@@ -36,21 +36,6 @@ INCLUDES=function.h dict.h language.h
 
 spec/run: spec/run.o $(INCLUDES) $(OBJECTS)
 	$(LINK) spec/run.o $(OBJECTS) $(LIBS) -o $@
-
-testbrk: testbrk.o
-	gcc testbrk.o -o $@
-
-testpython: testpython.o $(OBJECTS)
-	$(LINK) testpython.o $(OBJECTS) $(LIBS) -o $@
-
-testlua: testlua.o $(OBJECTS)
-	$(LINK) testlua.o $(OBJECTS) $(LIBS) -o $@
-
-testruby: testruby.o $(OBJECTS)
-	$(LINK) testruby.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS)
-
-testjs: testjs.o $(OBJECTS)
-	$(LINK) testjs.o $(OBJECTS) $(LIBS) -o $@ $(RUBY_LDFLAGS) $(RUBY_LIBS) 
 
 seccomp.o: seccomp.c util.h
 	$(CC) -c seccomp.c -o $@
