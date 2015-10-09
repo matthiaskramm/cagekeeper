@@ -155,7 +155,7 @@ static bool compile_script_rb(language_t*li, const char*script)
 
 static VALUE ruby_function_proxy(VALUE self, VALUE _args)
 {
-    ID id = rb_frame_last_func();
+    ID id = rb_frame_this_func();
 
     value_t* value = dict_lookup(global->functions, (void*)id);
 
